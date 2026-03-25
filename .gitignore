@@ -59,3 +59,23 @@ training/memory/
 
 # asset models (generated from training)
 assets/models/
+
+# python venv
+.venv/
+
+# annotation backups
+annotations.backup_*.json
+annotations.pre_*.json
+
+# autoresearch outputs and logs
+training/autoresearch_gray_edges_mixed*.out
+training/autoresearch_gray_edges_mixed*.pid
+training/autoresearch_gray_edges_mixed*_models/
+training/autoresearch_gray_edges_mixed*_results.tsv
+training/autoresearch_v3/runs/
+training/ablation/
+training/logs/
+training/training/
+
+# handoff docs
+CODEX_HANDOFF_*.md

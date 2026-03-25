@@ -1,19 +1,15 @@
 #!/usr/bin/env python3
 """
-Train a hybrid corner detection model for chess board images.
+Train a corner detection model for chess board images using hybrid handcrafted inputs.
 
-Input: 3-channel image (384x384):
-  Ch0: Grayscale (normalized)
-  Ch1: Canny edge map
-  Ch2: Square center heatmap (Gaussian blobs at detected empty square centers)
+Input modes:
+  - hybrid:     grayscale + Canny edges + square-center heatmap
+  - gray_edges: grayscale + Canny edges
+  - gray:       grayscale only
 
-Output: 8 floats — normalized (x,y) coordinates for 4 corners
-        [tl_x, tl_y, tr_x, tr_y, br_x, br_y, bl_x, bl_y]
-
-Architecture: ResNet-18 (modified first conv for 3 custom channels) → Linear(512, 8)
-
-Usage:
-    python3 training/train_corners_hybrid.py [--epochs 30] [--batch-size 16]
+Output:
+  8 normalized floats for board corners:
+  [tl_x, tl_y, tr_x, tr_y, br_x, br_y, bl_x, bl_y]
 """
 
 import argparse
@@ -22,40 +18,78 @@ import sys
 import time
 from pathlib import Path
 
+import cv2
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader, Dataset
 from torchvision import models
-from PIL import Image
-import numpy as np
-import cv2
 
 BASE_DIR = Path(__file__).parent
-MODELS_DIR = BASE_DIR / "models"
+DEFAULT_MODELS_DIR = BASE_DIR / "models"
 IMG_SIZE = 384
-
-# Sigma for Gaussian blobs in heatmap (relative to IMG_SIZE)
 HEATMAP_SIGMA = 8
+
+INPUT_MODE_TO_CHANNELS = {
+    "hybrid": 3,
+    "gray_edges": 2,
+    "gray": 1,
+}
 
 
 def get_device():
     if torch.backends.mps.is_available():
         print("Using MPS (Apple Silicon GPU)")
         return torch.device("mps")
-    elif torch.cuda.is_available():
+    if torch.cuda.is_available():
         print("Using CUDA")
         return torch.device("cuda")
-    else:
-        print("Using CPU")
-        return torch.device("cpu")
+    print("Using CPU")
+    return torch.device("cpu")
+
+
+def resolve_data_paths(args):
+    annotations_candidates = []
+    image_root_candidates = []
+    if args.annotations:
+        annotations_candidates.append(Path(args.annotations))
+    annotations_candidates.extend([
+        BASE_DIR / "data" / "annotations.json",
+        BASE_DIR.parent / "annotations.json",
+    ])
+
+    if args.images_root:
+        image_root_candidates.append(Path(args.images_root))
+    image_root_candidates.extend([
+        BASE_DIR / "data" / "chessred2k",
+        BASE_DIR / "data",
+    ])
+
+    annotations_path = next((p for p in annotations_candidates if p.exists()), None)
+    images_root = next((p for p in image_root_candidates if (p / "images").exists()), None)
+
+    if annotations_path is None:
+        print("annotations.json not found")
+        sys.exit(1)
+    if images_root is None:
+        print("images/ directory not found")
+        sys.exit(1)
+    return annotations_path, images_root
+
+
+def write_status(status_file, message):
+    if not status_file:
+        return
+    path = Path(status_file)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(message + "\n")
 
 
 def find_empty_squares_for_image(image_bgr):
     """
     Detect empty square centers on a BGR image.
     Simplified version of _find_empty_squares from detect_board_v5.py.
-    Returns list of (cx, cy) in pixel coordinates, or empty list.
     """
     h, w = image_bgr.shape[:2]
     lab = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2LAB)
@@ -73,8 +107,7 @@ def find_empty_squares_for_image(image_bgr):
             binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=1)
             binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=1)
 
-            contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL,
-                                           cv2.CHAIN_APPROX_SIMPLE)
+            contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             pts = []
             areas = []
             for cnt in contours:
@@ -93,18 +126,22 @@ def find_empty_squares_for_image(image_bgr):
                 solidity = area / hull_area if hull_area > 0 else 0
                 if solidity < 0.85:
                     continue
+
                 bx, by, bw_r, bh_r = cv2.boundingRect(cnt)
                 roi = l_ch[by:by + bh_r, bx:bx + bw_r]
                 if roi.size == 0:
                     continue
+
                 roi_mask = np.zeros((bh_r, bw_r), dtype=np.uint8)
                 cnt_shifted = cnt.copy()
                 cnt_shifted[:, :, 0] -= bx
                 cnt_shifted[:, :, 1] -= by
                 cv2.drawContours(roi_mask, [cnt_shifted], 0, 255, -1)
+
                 pixels = roi[roi_mask > 0]
                 if len(pixels) == 0 or np.std(pixels) > 18:
                     continue
+
                 pts.append((rect[0][0], rect[0][1]))
                 areas.append(area)
 
@@ -114,8 +151,7 @@ def find_empty_squares_for_image(image_bgr):
             areas_arr = np.array(areas)
             med_area = np.median(areas_arr)
             keep = (areas_arr > med_area * 0.4) & (areas_arr < med_area * 2.5)
-            pts_filt = [p for p, k in zip(pts, keep) if k]
-
+            pts_filt = [p for p, keep_flag in zip(pts, keep) if keep_flag]
             if len(pts_filt) < 4:
                 continue
 
@@ -123,7 +159,6 @@ def find_empty_squares_for_image(image_bgr):
             size_cv = np.std(areas_filt) / np.mean(areas_filt)
             consistency = max(0, 1.0 - size_cv)
             score = len(pts_filt) * (0.5 + 0.5 * consistency)
-
             if score > best_score:
                 best_score = score
                 best_pts = pts_filt
@@ -132,11 +167,6 @@ def find_empty_squares_for_image(image_bgr):
 
 
 def make_heatmap(square_centers, orig_w, orig_h, out_size=IMG_SIZE):
-    """
-    Create a heatmap image with Gaussian blobs at detected square centers.
-    Centers are in original image coordinates; output is out_size x out_size.
-    Returns float32 array in [0, 1].
-    """
     heatmap = np.zeros((out_size, out_size), dtype=np.float32)
     if not square_centers:
         return heatmap
@@ -145,12 +175,9 @@ def make_heatmap(square_centers, orig_w, orig_h, out_size=IMG_SIZE):
     sy = out_size / orig_h
     sigma = HEATMAP_SIGMA
 
-    for (cx, cy) in square_centers:
-        # Scale to output size
+    for cx, cy in square_centers:
         x = cx * sx
         y = cy * sy
-
-        # Draw Gaussian blob
         x0 = max(0, int(x - 3 * sigma))
         x1 = min(out_size, int(x + 3 * sigma) + 1)
         y0 = max(0, int(y - 3 * sigma))
@@ -159,68 +186,87 @@ def make_heatmap(square_centers, orig_w, orig_h, out_size=IMG_SIZE):
         for iy in range(y0, y1):
             for ix in range(x0, x1):
                 d2 = (ix - x) ** 2 + (iy - y) ** 2
-                heatmap[iy, ix] = max(heatmap[iy, ix],
-                                      np.exp(-d2 / (2 * sigma ** 2)))
+                heatmap[iy, ix] = max(heatmap[iy, ix], np.exp(-d2 / (2 * sigma ** 2)))
 
     return heatmap
 
 
-def make_3ch_input(image_bgr, square_centers, out_size=IMG_SIZE):
+def make_input_tensor(image_bgr, square_centers=None, input_mode="hybrid", out_size=IMG_SIZE):
     """
-    Build 3-channel input tensor from a BGR image:
-      Ch0: Grayscale (0-1)
-      Ch1: Canny edges (0-1)
-      Ch2: Square center heatmap (0-1)
-    Returns float32 numpy array (3, out_size, out_size).
+    Build a model input tensor in CHW float32 format.
     """
-    h, w = image_bgr.shape[:2]
+    if input_mode not in INPUT_MODE_TO_CHANNELS:
+        raise ValueError(f"Unsupported input mode: {input_mode}")
 
-    # Resize to output size
+    h, w = image_bgr.shape[:2]
     resized = cv2.resize(image_bgr, (out_size, out_size))
 
-    # Channel 0: Grayscale
     gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY).astype(np.float32) / 255.0
+    gray_u8 = (gray * 255).astype(np.uint8)
+    blurred = cv2.GaussianBlur(gray_u8, (5, 5), 1.4)
+    edges = cv2.Canny(blurred, 80, 200).astype(np.float32) / 255.0
 
-    # Channel 1: Canny edges
-    gray_uint8 = (gray * 255).astype(np.uint8)
-    blurred = cv2.GaussianBlur(gray_uint8, (5, 5), 1.4)
-    edges = cv2.Canny(blurred, 50, 150).astype(np.float32) / 255.0
+    channels = [gray]
+    if input_mode in {"hybrid", "gray_edges"}:
+        channels.append(edges)
+    if input_mode == "hybrid":
+        channels.append(make_heatmap(square_centers or [], w, h, out_size))
 
-    # Channel 2: Heatmap
-    heatmap = make_heatmap(square_centers, w, h, out_size)
+    return np.stack(channels, axis=0)
 
-    return np.stack([gray, edges, heatmap], axis=0)
+
+def convert_conv1_weights(conv_weight, input_channels):
+    if input_channels == conv_weight.shape[1]:
+        return conv_weight
+    mean_weight = conv_weight.mean(dim=1, keepdim=True)
+    scaled = mean_weight.repeat(1, input_channels, 1, 1) * (3.0 / float(input_channels))
+    return scaled
 
 
 class HybridCornerDataset(Dataset):
-    """Dataset that produces 3-channel hybrid inputs + corner targets."""
-
     def __init__(self, annotations_path, images_root, split="train",
-                 augment=False, cache_squares=True):
+                 input_mode="hybrid", augment=False, cache_squares=True,
+                 split_group="chessred2k"):
         with open(annotations_path) as f:
             data = json.load(f)
 
         self.images_root = Path(images_root)
         self.augment = augment
-
-        # Build lookups
-        self.images = {img["id"]: img for img in data["images"]}
-        self.corner_map = {c["image_id"]: c["corners"]
-                           for c in data["annotations"]["corners"]}
-
-        # Get split IDs
-        split_ids = data["splits"]["chessred2k"][split]["image_ids"]
-        self.sample_ids = [i for i in split_ids
-                           if i in self.corner_map and i in self.images]
-        self.sample_ids.sort()
-
-        # Cache detected squares per image (expensive to compute)
+        self.input_mode = input_mode
+        self.requires_heatmap = input_mode == "hybrid"
+        self.cache_squares = cache_squares and self.requires_heatmap
         self.square_cache = {}
-        self.cache_squares = cache_squares
 
-        print(f"Hybrid corner dataset {split}: {len(self.sample_ids)} samples")
+        self.images = {img["id"]: img for img in data["images"]}
+        self.corner_map = {
+            corner["image_id"]: corner["corners"]
+            for corner in data["annotations"]["corners"]
+        }
+
+        split_ids = data["splits"][split_group][split]["image_ids"]
+        sample_ids = [
+            img_id for img_id in split_ids
+            if img_id in self.images and img_id in self.corner_map
+        ]
+
+        valid_ids = []
+        missing = 0
+        for img_id in sample_ids:
+            img_path = self.images_root / self.images[img_id]["path"]
+            if img_path.exists():
+                valid_ids.append(img_id)
+            else:
+                missing += 1
+
+        self.sample_ids = sorted(valid_ids)
+        mode_label = f"{split_group}:{split}/{input_mode}"
+        print(f"Hybrid corner dataset {mode_label}: {len(self.sample_ids)} samples", flush=True)
+        if missing:
+            print(f"  Skipped {missing} missing files", flush=True)
 
     def _get_squares(self, img_id, image_bgr):
+        if not self.requires_heatmap:
+            return []
         if img_id in self.square_cache:
             return self.square_cache[img_id]
         centers = find_empty_squares_for_image(image_bgr)
@@ -236,33 +282,26 @@ class HybridCornerDataset(Dataset):
         img_info = self.images[img_id]
         corners = self.corner_map[img_id]
 
-        # Load image as BGR for CV operations
         img_path = self.images_root / img_info["path"]
         image_bgr = cv2.imread(str(img_path))
         if image_bgr is None:
-            # Missing file — return zeros and dummy target
-            dummy_input = torch.zeros(3, IMG_SIZE, IMG_SIZE, dtype=torch.float32)
-            dummy_target = torch.tensor([0.2, 0.2, 0.8, 0.2, 0.8, 0.8, 0.2, 0.8],
-                                        dtype=torch.float32)
-            return dummy_input, dummy_target
-        orig_h, orig_w = image_bgr.shape[:2]
+            raise FileNotFoundError(f"Could not read {img_path}")
 
-        # Detect squares
+        orig_h, orig_w = image_bgr.shape[:2]
         square_centers = self._get_squares(img_id, image_bgr)
 
-        # Augmentation: brightness/contrast jitter on the BGR image
         if self.augment:
-            # Random brightness
             beta = np.random.uniform(-40, 40)
-            # Random contrast
             alpha = np.random.uniform(0.6, 1.4)
-            image_bgr = np.clip(alpha * image_bgr.astype(np.float32) + beta,
-                                0, 255).astype(np.uint8)
+            image_bgr = np.clip(alpha * image_bgr.astype(np.float32) + beta, 0, 255).astype(np.uint8)
 
-        # Build 3-channel input
-        input_3ch = make_3ch_input(image_bgr, square_centers, IMG_SIZE)
+        input_tensor = make_input_tensor(
+            image_bgr,
+            square_centers=square_centers,
+            input_mode=self.input_mode,
+            out_size=IMG_SIZE,
+        )
 
-        # Normalize corner coordinates to [0, 1]
         target = torch.tensor([
             corners["top_left"][0] / orig_w,
             corners["top_left"][1] / orig_h,
@@ -274,26 +313,52 @@ class HybridCornerDataset(Dataset):
             corners["bottom_left"][1] / orig_h,
         ], dtype=torch.float32)
 
-        return torch.from_numpy(input_3ch), target
+        return torch.from_numpy(input_tensor), target
 
 
-def build_model():
-    """ResNet-18 with 3-channel input and regression head for 4 corners."""
+class CombinedCornerDataset(Dataset):
+    def __init__(self, datasets):
+        self.datasets = datasets
+        self.index = []
+        for dataset_idx, dataset in enumerate(datasets):
+            for sample_idx in range(len(dataset)):
+                self.index.append((dataset_idx, sample_idx))
+        print(f"Combined corner dataset: {len(self.index)} samples from {len(datasets)} splits", flush=True)
+
+    def __len__(self):
+        return len(self.index)
+
+    def __getitem__(self, idx):
+        dataset_idx, sample_idx = self.index[idx]
+        return self.datasets[dataset_idx][sample_idx]
+
+
+def build_model(input_channels=3):
     model = models.resnet18(weights=None)
-
-    # Load pretrained weights where possible
-    import os
-    cached = os.path.expanduser("~/.cache/torch/hub/checkpoints/resnet18-f37072fd.pth")
-    if os.path.exists(cached):
+    cached = Path.home() / ".cache" / "torch" / "hub" / "checkpoints" / "resnet18-f37072fd.pth"
+    if cached.exists():
         state = torch.load(cached, map_location="cpu", weights_only=True)
-        # The first conv expects 3 channels — our input is also 3 channels,
-        # but they're not RGB. We still load the pretrained weights since
-        # the learned edge/texture filters are useful starting points.
         model.load_state_dict(state)
+
+    if input_channels != 3:
+        original = model.conv1
+        new_conv = nn.Conv2d(
+            input_channels,
+            original.out_channels,
+            kernel_size=original.kernel_size,
+            stride=original.stride,
+            padding=original.padding,
+            bias=original.bias is not None,
+        )
+        with torch.no_grad():
+            new_conv.weight.copy_(convert_conv1_weights(original.weight.data, input_channels))
+            if original.bias is not None and new_conv.bias is not None:
+                new_conv.bias.copy_(original.bias.data)
+        model.conv1 = new_conv
 
     n = model.fc.in_features
     model.fc = nn.Sequential(
-        nn.Dropout(0.2),
+        nn.Dropout(0.0),
         nn.Linear(n, 8),
         nn.Sigmoid(),
     )
@@ -301,17 +366,16 @@ def build_model():
 
 
 def corner_distance(pred, target):
-    """Mean Euclidean distance between predicted and target corners."""
     pred = pred.view(-1, 4, 2)
     target = target.view(-1, 4, 2)
     dists = torch.sqrt(((pred - target) ** 2).sum(dim=2))
     return dists.mean()
 
 
-def train_epoch(model, loader, criterion, optimizer, device, epoch_str=""):
+def train_epoch(model, loader, criterion, optimizer, device, epoch_str="", status_file=None):
     model.train()
-    total_loss = 0
-    total_dist = 0
+    total_loss = 0.0
+    total_dist = 0.0
     total = 0
     n_batches = len(loader)
     log_every = max(1, n_batches // 4)
@@ -329,18 +393,21 @@ def train_epoch(model, loader, criterion, optimizer, device, epoch_str=""):
         total += images.size(0)
 
         if (i + 1) % log_every == 0 or (i + 1) == n_batches:
-            pct = (i + 1) / n_batches * 100
-            print(f"  {epoch_str} train {pct:5.1f}% | batch {i+1}/{n_batches} | "
-                  f"loss={total_loss/total:.4f} dist={total_dist/total:.4f}",
-                  flush=True)
+            message = (
+                f"  {epoch_str} train {(i + 1) / n_batches * 100:5.1f}% | "
+                f"batch {i + 1}/{n_batches} | loss={total_loss / total:.4f} "
+                f"dist={total_dist / total:.4f}"
+            )
+            print(message, flush=True)
+            write_status(status_file, message.strip())
 
     return total_loss / total, total_dist / total
 
 
 def validate(model, loader, criterion, device):
     model.eval()
-    total_loss = 0
-    total_dist = 0
+    total_loss = 0.0
+    total_dist = 0.0
     total = 0
     all_dists = []
 
@@ -351,20 +418,93 @@ def validate(model, loader, criterion, device):
             loss = criterion(outputs, targets)
 
             total_loss += loss.item() * images.size(0)
-
             pred = outputs.view(-1, 4, 2)
             targ = targets.view(-1, 4, 2)
             dists = torch.sqrt(((pred - targ) ** 2).sum(dim=2))
             total_dist += dists.mean().item() * images.size(0)
-            all_dists.append(dists.cpu())
             total += images.size(0)
+            all_dists.append(dists.cpu())
 
     all_dists = torch.cat(all_dists, dim=0)
-    mean_dist = all_dists.mean().item()
-    max_dist = all_dists.max().item()
-    per_corner = all_dists.mean(dim=0)
+    return (
+        total_loss / total,
+        total_dist / total,
+        all_dists.max().item(),
+        all_dists.mean(dim=0),
+    )
 
-    return total_loss / total, mean_dist, max_dist, per_corner
+
+def export_onnx(model_path, input_channels, output_path):
+    checkpoint = torch.load(model_path, map_location="cpu", weights_only=True)
+    export_model = build_model(input_channels=input_channels)
+    export_model.load_state_dict(checkpoint["model_state_dict"])
+    export_model.eval()
+
+    dummy = torch.randn(1, input_channels, IMG_SIZE, IMG_SIZE)
+    torch.onnx.export(
+        export_model,
+        dummy,
+        str(output_path),
+        input_names=["image"],
+        output_names=["corners"],
+        dynamic_axes={"image": {0: "batch"}, "corners": {0: "batch"}},
+        opset_version=18,
+        dynamo=False,
+        external_data=False,
+    )
+    size_mb = output_path.stat().st_size / (1024 * 1024)
+    print(f"Exported ONNX to {output_path} ({size_mb:.1f} MB)", flush=True)
+
+
+def load_checkpoint_flexible(model, checkpoint_state):
+    """
+    Load a checkpoint even if the first conv input-channel count changed.
+    This is useful for ablation runs that drop the heatmap channel but want
+    to start from the current best 3-channel checkpoint.
+    """
+    model_state = model.state_dict()
+    patched_state = {}
+    skipped_mismatch = []
+
+    for key, value in checkpoint_state.items():
+        if key not in model_state:
+            continue
+
+        target = model_state[key]
+        patched_value = value
+
+        if key == "conv1.weight" and value.shape != target.shape:
+            patched_value = convert_conv1_weights(value, target.shape[1])
+
+        if patched_value.shape != target.shape:
+            skipped_mismatch.append((key, tuple(value.shape), tuple(target.shape)))
+            continue
+
+        patched_state[key] = patched_value
+
+    missing, unexpected = model.load_state_dict(patched_state, strict=False)
+    if skipped_mismatch:
+        preview = ", ".join(
+            f"{key} {src}->{dst}" for key, src, dst in skipped_mismatch[:4]
+        )
+        if len(skipped_mismatch) > 4:
+            preview += ", ..."
+        print(f"  Skipped mismatched resume tensors: {preview}", flush=True)
+    return missing, unexpected
+
+
+def save_checkpoint(path, model, epoch, val_dist, input_mode, input_channels):
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "epoch": epoch,
+            "val_dist": val_dist,
+            "img_size": IMG_SIZE,
+            "input_mode": input_mode,
+            "input_channels": input_channels,
+        },
+        path,
+    )
 
 
 def main():
@@ -373,58 +513,115 @@ def main():
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--lr", type=float, default=0.0001)
     parser.add_argument("--resume", type=str, default=None)
+    parser.add_argument("--annotations", type=str, default=None)
+    parser.add_argument("--images-root", type=str, default=None)
+    parser.add_argument(
+        "--input-mode",
+        choices=sorted(INPUT_MODE_TO_CHANNELS.keys()),
+        default="gray_edges",
+        help="gray_edges is the default mixed-data path; hybrid keeps the square heatmap channel",
+    )
+    parser.add_argument("--models-dir", type=str, default=str(DEFAULT_MODELS_DIR))
+    parser.add_argument("--status-file", type=str, default=None)
+    parser.add_argument("--export-onnx", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--save-last", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument(
+        "--train-splits",
+        type=str,
+        default="chessred2k:train,user:train,chess_dataset_recovered:train",
+        help="Comma-separated split selectors like chessred2k:train,user:train",
+    )
+    parser.add_argument(
+        "--val-splits",
+        type=str,
+        default="chessred2k:val,chess_dataset_recovered:val",
+        help="Comma-separated split selectors like chessred2k:val,user:val",
+    )
     args = parser.parse_args()
 
-    # Find data
-    annotations_path = None
-    for p in [BASE_DIR / "data" / "annotations.json", BASE_DIR.parent / "annotations.json"]:
-        if p.exists():
-            annotations_path = str(p)
-            break
-    if not annotations_path:
-        print("annotations.json not found!")
-        sys.exit(1)
-
-    images_root = None
-    for p in [BASE_DIR / "data" / "chessred2k", BASE_DIR / "data"]:
-        if (p / "images").exists():
-            images_root = str(p)
-            break
-    if not images_root:
-        print("images/ directory not found!")
-        sys.exit(1)
+    annotations_path, images_root = resolve_data_paths(args)
+    models_dir = Path(args.models_dir)
+    input_channels = INPUT_MODE_TO_CHANNELS[args.input_mode]
 
     print(f"Annotations: {annotations_path}")
-    print(f"Images root: {images_root}")
+    print(f"Images root:  {images_root}")
+    print(f"Input mode:   {args.input_mode} ({input_channels} channels)")
 
     device = get_device()
 
-    # Pre-compute square detection for all images (slow but only once)
-    print("\nBuilding datasets (square detection will be cached on first epoch)...")
-    train_dataset = HybridCornerDataset(annotations_path, images_root, "train",
-                                         augment=True, cache_squares=True)
-    val_dataset = HybridCornerDataset(annotations_path, images_root, "val",
-                                       augment=False, cache_squares=True)
+    def parse_split_selectors(raw):
+        selectors = []
+        for item in raw.split(","):
+            item = item.strip()
+            if not item:
+                continue
+            if ":" not in item:
+                raise ValueError(f"Invalid split selector '{item}', expected group:split")
+            group, split = item.split(":", 1)
+            selectors.append((group, split))
+        return selectors
 
-    num_workers = 0  # Must be 0 for MPS and for our caching to work
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size,
-                              shuffle=True, num_workers=num_workers, pin_memory=False)
-    val_loader = DataLoader(val_dataset, batch_size=args.batch_size,
-                            shuffle=False, num_workers=num_workers, pin_memory=False)
+    train_datasets = [
+        HybridCornerDataset(
+            annotations_path,
+            images_root,
+            split=split,
+            split_group=group,
+            input_mode=args.input_mode,
+            augment=True,
+            cache_squares=True,
+        )
+        for group, split in parse_split_selectors(args.train_splits)
+    ]
+    val_datasets = [
+        HybridCornerDataset(
+            annotations_path,
+            images_root,
+            split=split,
+            split_group=group,
+            input_mode=args.input_mode,
+            augment=False,
+            cache_squares=True,
+        )
+        for group, split in parse_split_selectors(args.val_splits)
+    ]
 
-    model = build_model()
+    train_dataset = train_datasets[0] if len(train_datasets) == 1 else CombinedCornerDataset(train_datasets)
+    val_dataset = val_datasets[0] if len(val_datasets) == 1 else CombinedCornerDataset(val_datasets)
+
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=args.batch_size,
+        shuffle=True,
+        num_workers=0,
+        pin_memory=False,
+    )
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=0,
+        pin_memory=False,
+    )
+
+    model = build_model(input_channels=input_channels)
+    best_val_dist = float("inf")
+    no_improve = 0
+
     if args.resume:
         print(f"Resuming from {args.resume}")
         ckpt = torch.load(args.resume, map_location="cpu", weights_only=True)
-        model.load_state_dict(ckpt["model_state_dict"])
+        missing, unexpected = load_checkpoint_flexible(model, ckpt["model_state_dict"])
+        if missing:
+            print(f"  Missing keys on resume: {missing}", flush=True)
+        if unexpected:
+            print(f"  Unexpected keys on resume: {unexpected}", flush=True)
+        best_val_dist = min(best_val_dist, ckpt.get("val_dist", best_val_dist))
 
     model = model.to(device)
-
     criterion = nn.SmoothL1Loss()
 
-    # Phase 1: head only
     head_epochs = min(3, args.epochs) if not args.resume else 0
-
     if head_epochs > 0:
         for param in model.parameters():
             param.requires_grad = False
@@ -432,83 +629,84 @@ def main():
             param.requires_grad = True
         optimizer = optim.Adam(model.fc.parameters(), lr=args.lr)
 
-    MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    best_val_dist = float("inf")
-    no_improve = 0
+    models_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"\nTraining HYBRID corner detector for {args.epochs} epochs on {device}")
+    print(f"\nTraining corner detector for {args.epochs} epochs on {device}")
     print(f"Batch size: {args.batch_size}, LR: {args.lr}")
-    print(f"Input: {IMG_SIZE}x{IMG_SIZE} x 3ch (gray + canny + heatmap)")
+    print(f"Input size: {IMG_SIZE}x{IMG_SIZE} x {input_channels}ch")
     print("=" * 60, flush=True)
 
     if head_epochs > 0:
-        print(f"\nPhase 1: Head only for {head_epochs} epochs")
+        print(f"\nPhase 1: Head only for {head_epochs} epochs", flush=True)
         for epoch in range(head_epochs):
             start = time.time()
-            epoch_str = f"[{epoch+1}/{args.epochs}]"
-            train_loss, train_dist = train_epoch(model, train_loader, criterion,
-                                                  optimizer, device, epoch_str)
-            val_loss, val_dist, val_max, per_corner = validate(model, val_loader,
-                                                                criterion, device)
+            epoch_str = f"[{epoch + 1}/{args.epochs}]"
+            train_loss, train_dist = train_epoch(
+                model, train_loader, criterion, optimizer, device, epoch_str, args.status_file
+            )
+            val_loss, val_dist, val_max, per_corner = validate(model, val_loader, criterion, device)
             elapsed = time.time() - start
-
-            print(f"Epoch {epoch+1}/{args.epochs} ({elapsed:.0f}s) | "
-                  f"Train: loss={train_loss:.4f} dist={train_dist:.4f} | "
-                  f"Val: loss={val_loss:.4f} dist={val_dist:.4f} max={val_max:.4f}",
-                  flush=True)
-
+            summary = (
+                f"Epoch {epoch + 1}/{args.epochs} ({elapsed:.0f}s) | "
+                f"Train: loss={train_loss:.4f} dist={train_dist:.4f} | "
+                f"Val: loss={val_loss:.4f} dist={val_dist:.4f} max={val_max:.4f}"
+            )
+            print(summary, flush=True)
+            write_status(args.status_file, summary)
             if val_dist < best_val_dist:
                 best_val_dist = val_dist
-                torch.save({
-                    "model_state_dict": model.state_dict(),
-                    "epoch": epoch,
-                    "val_dist": val_dist,
-                    "img_size": IMG_SIZE,
-                    "channels": "gray+canny+heatmap",
-                }, MODELS_DIR / "best_corner_hybrid.pt")
+                save_checkpoint(
+                    models_dir / "best_corner_hybrid.pt",
+                    model,
+                    epoch,
+                    val_dist,
+                    args.input_mode,
+                    input_channels,
+                )
                 print(f"  -> New best! dist={val_dist:.4f}", flush=True)
 
-    # Phase 2: full fine-tune
     for param in model.parameters():
         param.requires_grad = True
     optimizer = optim.AdamW(model.parameters(), lr=args.lr * 0.1, weight_decay=0.001)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer,
-                                                      T_max=args.epochs - head_epochs)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(1, args.epochs - head_epochs))
 
     remaining = args.epochs - head_epochs
-    print(f"\nPhase 2: Fine-tuning all layers for {remaining} epochs "
-          f"(early stop after 7 no-improve)")
+    print(f"\nPhase 2: Fine-tuning all layers for {remaining} epochs (early stop after 7 no-improve)")
     print("=" * 60, flush=True)
 
     for epoch in range(remaining):
         start = time.time()
-        epoch_str = f"[{head_epochs+epoch+1}/{args.epochs}]"
-        train_loss, train_dist = train_epoch(model, train_loader, criterion,
-                                              optimizer, device, epoch_str)
-        val_loss, val_dist, val_max, per_corner = validate(model, val_loader,
-                                                            criterion, device)
+        epoch_num = head_epochs + epoch + 1
+        epoch_str = f"[{epoch_num}/{args.epochs}]"
+        train_loss, train_dist = train_epoch(
+            model, train_loader, criterion, optimizer, device, epoch_str, args.status_file
+        )
+        val_loss, val_dist, val_max, per_corner = validate(model, val_loader, criterion, device)
         scheduler.step()
         elapsed = time.time() - start
 
         corner_names = ["TL", "TR", "BR", "BL"]
-        per_corner_str = " ".join(f"{n}={d:.4f}" for n, d in zip(corner_names, per_corner))
-
-        print(f"Epoch {head_epochs+epoch+1}/{args.epochs} ({elapsed:.0f}s) | "
-              f"Train: loss={train_loss:.4f} dist={train_dist:.4f} | "
-              f"Val: loss={val_loss:.4f} dist={val_dist:.4f} max={val_max:.4f} | "
-              f"{per_corner_str}",
-              flush=True)
+        per_corner_str = " ".join(f"{name}={dist:.4f}" for name, dist in zip(corner_names, per_corner))
+        summary = (
+            f"Epoch {epoch_num}/{args.epochs} ({elapsed:.0f}s) | "
+            f"Train: loss={train_loss:.4f} dist={train_dist:.4f} | "
+            f"Val: loss={val_loss:.4f} dist={val_dist:.4f} max={val_max:.4f} | "
+            f"{per_corner_str}"
+        )
+        print(summary, flush=True)
+        write_status(args.status_file, summary)
 
         if val_dist < best_val_dist:
             best_val_dist = val_dist
             no_improve = 0
-            torch.save({
-                "model_state_dict": model.state_dict(),
-                "epoch": head_epochs + epoch,
-                "val_dist": val_dist,
-                "img_size": IMG_SIZE,
-                "channels": "gray+canny+heatmap",
-            }, MODELS_DIR / "best_corner_hybrid.pt")
+            save_checkpoint(
+                models_dir / "best_corner_hybrid.pt",
+                model,
+                epoch_num - 1,
+                val_dist,
+                args.input_mode,
+                input_channels,
+            )
             print(f"  -> New best! dist={val_dist:.4f}", flush=True)
         else:
             no_improve += 1
@@ -516,31 +714,28 @@ def main():
                 print("  Early stopping: no improvement for 7 epochs", flush=True)
                 break
 
-    print(f"\n{'='*60}")
+    if args.save_last:
+        save_checkpoint(
+            models_dir / "last_corner_hybrid.pt",
+            model,
+            epoch_num - 1,
+            val_dist,
+            args.input_mode,
+            input_channels,
+        )
+        print(f"Saved final checkpoint to {models_dir / 'last_corner_hybrid.pt'}", flush=True)
+
+    print(f"\n{'=' * 60}")
     print(f"Done! Best mean corner distance: {best_val_dist:.4f}")
-    print(f"  (On a 3072px image, {best_val_dist:.4f} ~ {best_val_dist*3072:.0f}px per corner)")
+    print(f"  (On a 3072px image, {best_val_dist:.4f} ~ {best_val_dist * 3072:.0f}px per corner)")
 
-    return  # autoresearch: skip ONNX export
-
-    return  # autoresearch: skip ONNX export
-
-    # Export to ONNX
-    print("\nExporting to ONNX...")
-    best_ckpt = torch.load(MODELS_DIR / "best_corner_hybrid.pt",
-                           map_location="cpu", weights_only=True)
-    export_model = build_model()
-    export_model.load_state_dict(best_ckpt["model_state_dict"])
-    export_model.eval()
-    dummy = torch.randn(1, 3, IMG_SIZE, IMG_SIZE)
-    onnx_path = MODELS_DIR / "corner_hybrid.onnx"
-    torch.onnx.export(
-        export_model, dummy, str(onnx_path),
-        input_names=["image"], output_names=["corners"],
-        dynamic_axes={"image": {0: "batch"}, "corners": {0: "batch"}},
-        opset_version=13,
-    )
-    size_mb = onnx_path.stat().st_size / (1024 * 1024)
-    print(f"Exported to {onnx_path} ({size_mb:.1f} MB)")
+    if args.export_onnx:
+        print("\nExporting to ONNX...", flush=True)
+        export_onnx(
+            models_dir / "best_corner_hybrid.pt",
+            input_channels=input_channels,
+            output_path=models_dir / "corner_hybrid.onnx",
+        )
 
 
 if __name__ == "__main__":

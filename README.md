@@ -27,9 +27,12 @@ src/
 
 training/                # Python training & evaluation scripts
   train_corners_hybrid.py  # Train hybrid corner detector
-                           #   - 3-channel input: grayscale + Canny edges + square heatmap
+                           #   - Input ablations: hybrid / gray_edges / gray
                            #   - ResNet-18 → Linear(512, 8) → Sigmoid
                            #   - SmoothL1Loss, 2-phase training (head-only → fine-tune)
+  train_corners_heatmap.py # Train heatmap-output corner detector
+                           #   - ResNet-18 encoder + decoder → 4 corner heatmaps
+                           #   - Argmax / soft-argmax decoding to corner coords
   autoresearch.py          # Autonomous hyperparameter search loop
                            #   - Patches train script → runs experiment → keeps/discards
                            #   - Resumes from best checkpoint, logs to TSV
@@ -41,6 +44,7 @@ training/                # Python training & evaluation scripts
   prepare_all_data.py      # Download + prepare all datasets
   eval_gt_corners.py       # Evaluate corner predictions against ground truth
   annotate_corners.py      # Manual corner annotation tool
+  add_chess_dataset.py     # Auto-merge samryan18/chess-dataset via CV corners
   add_user_images.py       # Add user photos to training data
 
 assets/                  # App assets (images, model files)
@@ -50,6 +54,8 @@ assets/                  # App assets (images, model files)
 
 ### Corner Detection — ACTIVE DEVELOPMENT
 - **Hybrid ML model**: ResNet-18 with 3-channel input (grayscale + Canny edges + square center heatmap)
+- **Input ablation path**: `train_corners_hybrid.py --input-mode gray_edges` tests dropping the square heatmap channel
+- **Heatmap output path**: `train_corners_heatmap.py` predicts 4 corner heatmaps instead of 8 direct coordinates
 - **Best val_dist: 0.0198** (~60px mean error on 3072px images, ~2% diagonal)
 - Trained on ChessReD2K (1,447 train / 330 val)
 - Generalizes well to user's own photos (0.0200 norm_dist on 5 test images)
@@ -83,6 +89,7 @@ Exported as ONNX (~43MB each), stored in `assets/models/` (gitignored):
 All in `training/data/` (gitignored):
 - **ChessReD2K**: 1,447 train / 330 val / 306 test images with corner + piece annotations
 - **chess-dataset**: 500 real photos of green/white vinyl board with FEN labels (originals + preprocessed)
+  - `training/add_chess_dataset.py` can reverse-engineer board corners with `detect_board_v5.py` and merge them into `annotations.json`
 - **User images**: 5 manually annotated board photos
 
 ## Key Technical Decisions
