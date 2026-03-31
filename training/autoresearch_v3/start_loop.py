@@ -126,7 +126,15 @@ def infer_tag_from_branch(worktree: Path) -> str:
 
 
 def commit_baseline_if_needed(worktree: Path, track: str) -> bool:
-    status_output = git(worktree, ["status", "--porcelain"])
+    # Use subprocess directly to preserve raw porcelain format (leading spaces matter)
+    result = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=str(worktree),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    status_output = result.stdout
     changed_files = parse_changed_files(status_output)
     if not changed_files:
         return False
