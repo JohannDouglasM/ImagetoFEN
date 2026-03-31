@@ -8,6 +8,7 @@ Outputs:
 - corner coordinates decoded with soft-argmax
 """
 
+import math
 from pathlib import Path
 
 import cv2
@@ -19,11 +20,11 @@ import torch.optim as optim
 from torchvision import models
 
 DEFAULTS = {
-    "candidate_name": "gray_edges_unet_dual_head_v0",
+    "candidate_name": "gray_edges_unet_dual_head_lr1e3_bs32_sigma2",
     "img_size": 384,
     "input_mode": "gray_edges",
-    "batch_size": 12,
-    "lr": 0.0001,
+    "batch_size": 32,
+    "lr": 0.001,
     "weight_decay": 0.001,
     "eval_interval_s": 300.0,
     "train_splits": "chessred2k:train,user:train,chess_dataset_recovered:train",
@@ -33,7 +34,7 @@ DEFAULTS = {
     "resume_candidates": [],
     "allow_legacy_resume_fallback": False,
     "decoder_size": 96,
-    "heatmap_sigma": 3.0,
+    "heatmap_sigma": 2.0,
     "mask_loss_weight": 0.5,
     "heatmap_loss_weight": 1.0,
     "coord_loss_weight": 0.2,
@@ -346,12 +347,20 @@ def decode_coords(outputs):
 
 
 def create_optimizer(model, *, lr, weight_decay, resumed):
-    effective_lr = lr * 0.1 if resumed else lr
+    effective_lr = lr * 0.3 if resumed else lr
     return optim.AdamW(model.parameters(), lr=effective_lr, weight_decay=weight_decay)
 
 
 def create_scheduler(optimizer, *, total_train_steps):
-    return optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(1, total_train_steps))
+    warmup_steps = max(1, int(total_train_steps * 0.1))
+
+    def lr_lambda(step):
+        if step < warmup_steps:
+            return step / warmup_steps
+        progress = min((step - warmup_steps) / max(1, total_train_steps - warmup_steps), 1.0)
+        return 0.5 * (1.0 + math.cos(math.pi * progress))
+
+    return optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
 
 def load_checkpoint(model, checkpoint_state):
