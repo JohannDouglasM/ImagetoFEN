@@ -20,18 +20,18 @@ import torch.optim as optim
 from torchvision import models
 
 DEFAULTS = {
-    "candidate_name": "gray_edges_unet_dual_head_lr15e4_wd01_bs48",
+    "candidate_name": "gray_edges_unet_dual_head_beta40_bs48",
     "img_size": 384,
     "input_mode": "gray_edges",
     "batch_size": 48,
-    "lr": 0.0015,
+    "lr": 0.001,
     "weight_decay": 0.01,
     "eval_interval_s": 300.0,
     "train_splits": "chessred2k:train,user:train,chess_dataset_recovered:train",
     "val_splits": "chessred2k:val,chess_dataset_recovered:val",
     "report_splits": "chessred2k:val,chess_dataset_recovered:val",
     "max_no_improve_evals": 4,
-    "resume_candidates": [],
+    "resume_candidates": ["7d513d6"],
     "allow_legacy_resume_fallback": False,
     "decoder_size": 96,
     "heatmap_sigma": 2.0,
@@ -297,7 +297,7 @@ def make_targets(corners, *, orig_w, orig_h, img_size, defaults):
     }
 
 
-def soft_argmax_decode(heatmaps, beta=20.0):
+def soft_argmax_decode(heatmaps, beta=40.0):
     b, c, h, w = heatmaps.shape
     flat = heatmaps.view(b, c, -1)
     probs = torch.softmax(flat * beta, dim=-1)
