@@ -20,12 +20,12 @@ import torch.optim as optim
 from torchvision import models
 
 DEFAULTS = {
-    "candidate_name": "gray_edges_unet_dual_head_sigma3_bs48",
+    "candidate_name": "gray_edges_unet_dual_head_wd02_bs48",
     "img_size": 384,
     "input_mode": "gray_edges",
     "batch_size": 48,
     "lr": 0.001,
-    "weight_decay": 0.01,
+    "weight_decay": 0.02,
     "eval_interval_s": 300.0,
     "train_splits": "chessred2k:train,user:train,chess_dataset_recovered:train",
     "val_splits": "chessred2k:val,chess_dataset_recovered:val",
@@ -34,7 +34,7 @@ DEFAULTS = {
     "resume_candidates": ["7d513d6"],
     "allow_legacy_resume_fallback": False,
     "decoder_size": 96,
-    "heatmap_sigma": 3.0,
+    "heatmap_sigma": 2.0,
     "mask_loss_weight": 0.5,
     "heatmap_loss_weight": 1.0,
     "coord_loss_weight": 0.2,
