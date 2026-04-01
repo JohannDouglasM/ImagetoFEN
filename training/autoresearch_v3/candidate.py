@@ -20,7 +20,7 @@ import torch.optim as optim
 from torchvision import models
 
 DEFAULTS = {
-    "candidate_name": "gray_edges_unet_dual_head_flat_lr_resume",
+    "candidate_name": "gray_edges_unet_dual_head_adamw_beta2_095_resume",
     "img_size": 384,
     "input_mode": "gray_edges",
     "batch_size": 48,
@@ -353,7 +353,8 @@ def create_optimizer(model, *, lr, weight_decay, resumed):
     global _RESUMED
     _RESUMED = resumed
     effective_lr = lr * 0.3 if resumed else lr
-    return optim.AdamW(model.parameters(), lr=effective_lr, weight_decay=weight_decay)
+    betas = (0.9, 0.95) if resumed else (0.9, 0.999)
+    return optim.AdamW(model.parameters(), lr=effective_lr, weight_decay=weight_decay, betas=betas)
 
 
 def create_scheduler(optimizer, *, total_train_steps):
