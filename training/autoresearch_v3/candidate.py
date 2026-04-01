@@ -20,7 +20,7 @@ import torch.optim as optim
 from torchvision import models
 
 DEFAULTS = {
-    "candidate_name": "gray_edges_unet_dual_head_beta1_085_resume",
+    "candidate_name": "gray_edges_unet_dual_head_coord_weight_075_resume",
     "img_size": 384,
     "input_mode": "gray_edges",
     "batch_size": 48,
@@ -37,7 +37,7 @@ DEFAULTS = {
     "heatmap_sigma": 2.0,
     "mask_loss_weight": 0.5,
     "heatmap_loss_weight": 1.0,
-    "coord_loss_weight": 0.5,
+    "coord_loss_weight": 0.75,
 }
 
 INPUT_MODE_TO_CHANNELS = {
@@ -353,7 +353,7 @@ def create_optimizer(model, *, lr, weight_decay, resumed):
     global _RESUMED
     _RESUMED = resumed
     effective_lr = lr * 0.3 if resumed else lr
-    betas = (0.85, 0.95) if resumed else (0.9, 0.999)
+    betas = (0.9, 0.95) if resumed else (0.9, 0.999)
     return optim.AdamW(model.parameters(), lr=effective_lr, weight_decay=weight_decay, betas=betas)
 
 
