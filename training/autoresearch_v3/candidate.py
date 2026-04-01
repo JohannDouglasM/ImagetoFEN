@@ -20,7 +20,7 @@ import torch.optim as optim
 from torchvision import models
 
 DEFAULTS = {
-    "candidate_name": "gray_edges_unet_dual_head_sigma_1_5",
+    "candidate_name": "gray_edges_unet_dual_head_coord_w_0_5",
     "img_size": 384,
     "input_mode": "gray_edges",
     "batch_size": 48,
@@ -34,10 +34,10 @@ DEFAULTS = {
     "resume_candidates": ["7d513d6"],
     "allow_legacy_resume_fallback": False,
     "decoder_size": 96,
-    "heatmap_sigma": 1.5,
+    "heatmap_sigma": 2.0,
     "mask_loss_weight": 0.5,
     "heatmap_loss_weight": 1.0,
-    "coord_loss_weight": 0.2,
+    "coord_loss_weight": 0.5,
 }
 
 INPUT_MODE_TO_CHANNELS = {
