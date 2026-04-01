@@ -20,12 +20,12 @@ import torch.optim as optim
 from torchvision import models
 
 DEFAULTS = {
-    "candidate_name": "gray_edges_unet_dual_head_bs32",
+    "candidate_name": "gray_edges_unet_dual_head_wd003",
     "img_size": 384,
     "input_mode": "gray_edges",
-    "batch_size": 32,
+    "batch_size": 48,
     "lr": 0.0005,
-    "weight_decay": 0.01,
+    "weight_decay": 0.003,
     "eval_interval_s": 300.0,
     "train_splits": "chessred2k:train,user:train,chess_dataset_recovered:train",
     "val_splits": "chessred2k:val,chess_dataset_recovered:val",
