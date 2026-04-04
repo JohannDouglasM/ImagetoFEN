@@ -23,7 +23,7 @@ DEFAULTS = {
     "candidate_name": "gray_edges_unet_dual_head_expLR",
     "img_size": 384,
     "input_mode": "gray_edges",
-    "batch_size": 24,
+    "batch_size": 32,
     "lr": 0.0003,
     "weight_decay": 0.03,
     "eval_interval_s": 300.0,
