@@ -353,13 +353,12 @@ def create_optimizer(model, *, lr, weight_decay, resumed):
     global _RESUMED
     _RESUMED = resumed
     effective_lr = lr * 0.3 if resumed else lr
-    return optim.AdamW(model.parameters(), lr=effective_lr, weight_decay=weight_decay, betas=(0.9, 0.95), amsgrad=True)
+    return optim.AdamW(model.parameters(), lr=effective_lr, weight_decay=weight_decay, amsgrad=True)
 
 
 def create_scheduler(optimizer, *, total_train_steps):
-    return optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=max(1, total_train_steps), eta_min=1e-7
-    )
+    gamma = 0.02 ** (1.0 / max(1, total_train_steps))
+    return optim.lr_scheduler.ExponentialLR(optimizer, gamma=gamma)
 
 
 def load_checkpoint(model, checkpoint_state):
