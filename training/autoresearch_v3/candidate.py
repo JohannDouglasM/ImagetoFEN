@@ -357,10 +357,9 @@ def create_optimizer(model, *, lr, weight_decay, resumed):
 
 
 def create_scheduler(optimizer, *, total_train_steps):
-    # ExponentialLR: decay so that final LR is ~2% of initial
-    # gamma^total_steps = 0.02  =>  gamma = 0.02^(1/total_steps)
-    gamma = 0.02 ** (1.0 / max(1, total_train_steps))
-    return optim.lr_scheduler.ExponentialLR(optimizer, gamma=gamma)
+    return optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=max(1, total_train_steps), eta_min=1e-7
+    )
 
 
 def load_checkpoint(model, checkpoint_state):
