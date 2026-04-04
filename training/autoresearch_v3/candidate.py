@@ -34,7 +34,7 @@ DEFAULTS = {
     "resume_candidates": ["7d513d6"],
     "allow_legacy_resume_fallback": False,
     "decoder_size": 96,
-    "heatmap_sigma": 2.0,
+    "heatmap_sigma": 3.0,
     "mask_loss_weight": 0.5,
     "heatmap_loss_weight": 1.0,
     "coord_loss_weight": 2.0,
