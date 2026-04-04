@@ -20,16 +20,16 @@ import torch.optim as optim
 from torchvision import models
 
 DEFAULTS = {
-    "candidate_name": "gray_edges_unet_dual_head_batch24_cosine",
+    "candidate_name": "gray_edges_unet_dual_head_expLR",
     "img_size": 384,
     "input_mode": "gray_edges",
     "batch_size": 24,
-    "lr": 0.0005,
-    "weight_decay": 0.01,
+    "lr": 0.0003,
+    "weight_decay": 0.03,
     "eval_interval_s": 300.0,
-    "train_splits": "chessred2k:train,user:train,chess_dataset_recovered:train",
-    "val_splits": "chessred2k:val,chess_dataset_recovered:val",
-    "report_splits": "chessred2k:val,chess_dataset_recovered:val",
+    "train_splits": "chessred2k:train,user:train,chess_dataset_recovered:train,synthetic:train",
+    "val_splits": "chessred2k:val,chess_dataset_recovered:val,synthetic:val",
+    "report_splits": "chessred2k:val,chess_dataset_recovered:val,synthetic:val",
     "max_no_improve_evals": 4,
     "resume_candidates": ["7d513d6"],
     "allow_legacy_resume_fallback": False,
@@ -37,7 +37,7 @@ DEFAULTS = {
     "heatmap_sigma": 2.0,
     "mask_loss_weight": 0.5,
     "heatmap_loss_weight": 1.0,
-    "coord_loss_weight": 0.5,
+    "coord_loss_weight": 2.0,
 }
 
 INPUT_MODE_TO_CHANNELS = {
@@ -353,26 +353,14 @@ def create_optimizer(model, *, lr, weight_decay, resumed):
     global _RESUMED
     _RESUMED = resumed
     effective_lr = lr * 0.3 if resumed else lr
-    betas = (0.9, 0.95) if resumed else (0.9, 0.999)
-    return optim.AdamW(model.parameters(), lr=effective_lr, weight_decay=weight_decay, betas=betas)
+    return optim.AdamW(model.parameters(), lr=effective_lr, weight_decay=weight_decay, amsgrad=True)
 
 
 def create_scheduler(optimizer, *, total_train_steps):
-    if _RESUMED:
-        def cosine_resume(step):
-            progress = min(step / max(1, total_train_steps), 1.0)
-            return 0.5 * (1.0 + math.cos(math.pi * progress))
-        return optim.lr_scheduler.LambdaLR(optimizer, cosine_resume)
-
-    warmup_steps = max(1, int(total_train_steps * 0.1))
-
-    def lr_lambda(step):
-        if step < warmup_steps:
-            return step / warmup_steps
-        progress = min((step - warmup_steps) / max(1, total_train_steps - warmup_steps), 1.0)
-        return 0.5 * (1.0 + math.cos(math.pi * progress))
-
-    return optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    # ExponentialLR: decay so that final LR is ~2% of initial
+    # gamma^total_steps = 0.02  =>  gamma = 0.02^(1/total_steps)
+    gamma = 0.02 ** (1.0 / max(1, total_train_steps))
+    return optim.lr_scheduler.ExponentialLR(optimizer, gamma=gamma)
 
 
 def load_checkpoint(model, checkpoint_state):
