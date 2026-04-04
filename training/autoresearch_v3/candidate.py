@@ -25,7 +25,7 @@ DEFAULTS = {
     "input_mode": "gray_edges",
     "batch_size": 24,
     "lr": 0.0003,
-    "weight_decay": 0.03,
+    "weight_decay": 0.05,
     "eval_interval_s": 300.0,
     "train_splits": "chessred2k:train,user:train,chess_dataset_recovered:train,synthetic:train",
     "val_splits": "chessred2k:val,chess_dataset_recovered:val,synthetic:val",
