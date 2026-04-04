@@ -353,7 +353,7 @@ def create_optimizer(model, *, lr, weight_decay, resumed):
     global _RESUMED
     _RESUMED = resumed
     effective_lr = lr * 0.5 if resumed else lr
-    return optim.AdamW(model.parameters(), lr=effective_lr, weight_decay=weight_decay, amsgrad=True)
+    return optim.AdamW(model.parameters(), lr=effective_lr, weight_decay=weight_decay, betas=(0.9, 0.95), amsgrad=True)
 
 
 def create_scheduler(optimizer, *, total_train_steps):
