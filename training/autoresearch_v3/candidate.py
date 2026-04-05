@@ -23,7 +23,7 @@ DEFAULTS = {
     "candidate_name": "gray_edges_unet_dual_head_expLR",
     "img_size": 384,
     "input_mode": "gray_edges",
-    "batch_size": 24,
+    "batch_size": 16,
     "lr": 0.0003,
     "weight_decay": 0.03,
     "eval_interval_s": 300.0,
@@ -352,8 +352,8 @@ _RESUMED = False
 def create_optimizer(model, *, lr, weight_decay, resumed):
     global _RESUMED
     _RESUMED = resumed
-    effective_lr = lr * 0.8 if resumed else lr
-    return optim.AdamW(model.parameters(), lr=effective_lr, weight_decay=weight_decay, betas=(0.85, 0.999), amsgrad=True)
+    effective_lr = lr * 1.0 if resumed else lr
+    return optim.AdamW(model.parameters(), lr=effective_lr, weight_decay=weight_decay, betas=(0.9, 0.999), amsgrad=True)
 
 
 def create_scheduler(optimizer, *, total_train_steps):
