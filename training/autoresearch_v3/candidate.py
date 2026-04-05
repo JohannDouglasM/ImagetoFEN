@@ -25,7 +25,7 @@ DEFAULTS = {
     "input_mode": "gray_edges",
     "batch_size": 16,
     "lr": 0.0003,
-    "weight_decay": 0.03,
+    "weight_decay": 0.05,
     "eval_interval_s": 300.0,
     "train_splits": "chessred2k:train,user:train,chess_dataset_recovered:train,synthetic:train",
     "val_splits": "chessred2k:val,chess_dataset_recovered:val,synthetic:val",
@@ -346,14 +346,8 @@ def decode_coords(outputs):
     return outputs["coords"]
 
 
-_RESUMED = False
-
-
 def create_optimizer(model, *, lr, weight_decay, resumed):
-    global _RESUMED
-    _RESUMED = resumed
-    effective_lr = lr * (5.0 / 3.0) if resumed else lr
-    return optim.AdamW(model.parameters(), lr=effective_lr, weight_decay=weight_decay, betas=(0.9, 0.999), amsgrad=True)
+    return optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay, betas=(0.9, 0.999), amsgrad=True)
 
 
 def create_scheduler(optimizer, *, total_train_steps):
