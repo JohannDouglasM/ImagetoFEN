@@ -357,7 +357,7 @@ def create_optimizer(model, *, lr, weight_decay, resumed):
 
 
 def create_scheduler(optimizer, *, total_train_steps):
-    gamma = 0.10 ** (1.0 / max(1, total_train_steps))
+    gamma = 0.02 ** (1.0 / max(1, total_train_steps))
     return optim.lr_scheduler.ExponentialLR(optimizer, gamma=gamma)
 
 
