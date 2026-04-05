@@ -24,7 +24,7 @@ DEFAULTS = {
     "img_size": 384,
     "input_mode": "gray_edges",
     "batch_size": 16,
-    "lr": 0.0003,
+    "lr": 0.00015,
     "weight_decay": 0.03,
     "eval_interval_s": 300.0,
     "train_splits": "chessred2k:train,user:train,chess_dataset_recovered:train,synthetic:train",
@@ -37,7 +37,7 @@ DEFAULTS = {
     "heatmap_sigma": 3.0,
     "mask_loss_weight": 0.5,
     "heatmap_loss_weight": 1.0,
-    "coord_loss_weight": 3.0,
+    "coord_loss_weight": 2.0,
 }
 
 INPUT_MODE_TO_CHANNELS = {
