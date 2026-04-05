@@ -37,7 +37,7 @@ DEFAULTS = {
     "heatmap_sigma": 3.0,
     "mask_loss_weight": 0.5,
     "heatmap_loss_weight": 1.0,
-    "coord_loss_weight": 2.0,
+    "coord_loss_weight": 3.0,
 }
 
 INPUT_MODE_TO_CHANNELS = {
@@ -347,7 +347,7 @@ def decode_coords(outputs):
 
 
 def create_optimizer(model, *, lr, weight_decay, resumed):
-    return optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay, betas=(0.85, 0.999), amsgrad=True)
+    return optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay, betas=(0.9, 0.999), amsgrad=True)
 
 
 def create_scheduler(optimizer, *, total_train_steps):
