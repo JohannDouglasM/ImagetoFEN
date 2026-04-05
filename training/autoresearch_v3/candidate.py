@@ -297,7 +297,7 @@ def make_targets(corners, *, orig_w, orig_h, img_size, defaults):
     }
 
 
-def soft_argmax_decode(heatmaps, beta=20.0):
+def soft_argmax_decode(heatmaps, beta=15.0):
     b, c, h, w = heatmaps.shape
     flat = heatmaps.view(b, c, -1)
     probs = torch.softmax(flat * beta, dim=-1)
@@ -352,7 +352,7 @@ _RESUMED = False
 def create_optimizer(model, *, lr, weight_decay, resumed):
     global _RESUMED
     _RESUMED = resumed
-    effective_lr = lr * 1.0 if resumed else lr
+    effective_lr = lr * (5.0 / 3.0) if resumed else lr
     return optim.AdamW(model.parameters(), lr=effective_lr, weight_decay=weight_decay, betas=(0.9, 0.999), amsgrad=True)
 
 
