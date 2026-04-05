@@ -23,7 +23,7 @@ DEFAULTS = {
     "candidate_name": "gray_edges_unet_dual_head_expLR",
     "img_size": 384,
     "input_mode": "gray_edges",
-    "batch_size": 32,
+    "batch_size": 16,
     "lr": 0.0003,
     "weight_decay": 0.03,
     "eval_interval_s": 300.0,
@@ -297,7 +297,7 @@ def make_targets(corners, *, orig_w, orig_h, img_size, defaults):
     }
 
 
-def soft_argmax_decode(heatmaps, beta=15.0):
+def soft_argmax_decode(heatmaps, beta=20.0):
     b, c, h, w = heatmaps.shape
     flat = heatmaps.view(b, c, -1)
     probs = torch.softmax(flat * beta, dim=-1)
