@@ -37,7 +37,7 @@ DEFAULTS = {
     "heatmap_sigma": 3.0,
     "mask_loss_weight": 0.5,
     "heatmap_loss_weight": 1.0,
-    "coord_loss_weight": 2.0,
+    "coord_loss_weight": 3.0,
 }
 
 INPUT_MODE_TO_CHANNELS = {
