@@ -37,7 +37,7 @@ DEFAULTS = {
     "heatmap_sigma": 3.0,
     "mask_loss_weight": 0.5,
     "heatmap_loss_weight": 1.0,
-    "coord_loss_weight": 3.0,
+    "coord_loss_weight": 2.0,
 }
 
 INPUT_MODE_TO_CHANNELS = {
@@ -357,7 +357,7 @@ def create_optimizer(model, *, lr, weight_decay, resumed):
 
 
 def create_scheduler(optimizer, *, total_train_steps):
-    gamma = 0.10 ** (1.0 / max(1, total_train_steps))
+    gamma = 0.25 ** (1.0 / max(1, total_train_steps))
     return optim.lr_scheduler.ExponentialLR(optimizer, gamma=gamma)
 
 
