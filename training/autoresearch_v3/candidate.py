@@ -25,7 +25,7 @@ DEFAULTS = {
     "input_mode": "gray_edges",
     "batch_size": 16,
     "lr": 0.0003,
-    "weight_decay": 0.03,
+    "weight_decay": 0.05,
     "eval_interval_s": 300.0,
     "train_splits": "chessred2k:train,user:train,chess_dataset_recovered:train,synthetic:train",
     "val_splits": "chessred2k:val,chess_dataset_recovered:val,synthetic:val",
@@ -297,7 +297,7 @@ def make_targets(corners, *, orig_w, orig_h, img_size, defaults):
     }
 
 
-def soft_argmax_decode(heatmaps, beta=20.0):
+def soft_argmax_decode(heatmaps, beta=15.0):
     b, c, h, w = heatmaps.shape
     flat = heatmaps.view(b, c, -1)
     probs = torch.softmax(flat * beta, dim=-1)
