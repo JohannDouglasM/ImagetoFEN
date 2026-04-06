@@ -20,7 +20,7 @@ import torch.optim as optim
 from torchvision import models
 
 DEFAULTS = {
-    "candidate_name": "gray_edges_unet_dual_head_bs16_wd5e2_lr15e5",
+    "candidate_name": "gray_edges_unet_dual_head_bs16_wd5e2_lr15e5_euclid_coord",
     "img_size": 384,
     "input_mode": "gray_edges",
     "batch_size": 16,
@@ -329,7 +329,9 @@ def weighted_bce_with_logits(logits, target, positive_weight=3.0):
 def compute_loss(outputs, targets):
     mask_loss = 0.5 * weighted_bce_with_logits(outputs["mask_logits"], targets["mask"]) + 0.5 * dice_loss_from_logits(outputs["mask_logits"], targets["mask"])
     heatmap_loss = weighted_mse(torch.sigmoid(outputs["heatmaps"]), targets["heatmaps"])
-    coord_loss = nn.functional.smooth_l1_loss(outputs["coords"], targets["coords"])
+    pred_coords = outputs["coords"].view(-1, 4, 2)
+    tgt_coords = targets["coords"].view(-1, 4, 2)
+    coord_loss = (pred_coords - tgt_coords).norm(dim=-1).mean()
     total = (
         DEFAULTS["heatmap_loss_weight"] * heatmap_loss
         + DEFAULTS["mask_loss_weight"] * mask_loss
