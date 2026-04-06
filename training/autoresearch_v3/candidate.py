@@ -20,7 +20,7 @@ import torch.optim as optim
 from torchvision import models
 
 DEFAULTS = {
-    "candidate_name": "gray_edges_unet_dual_head_bs32_wd3e2_lr3e4_euclid_softargmax_beta20",
+    "candidate_name": "gray_edges_unet_dual_head_bs32_wd3e2_lr3e4_euclid_hmw1",
     "img_size": 384,
     "input_mode": "gray_edges",
     "batch_size": 32,
@@ -36,7 +36,7 @@ DEFAULTS = {
     "decoder_size": 96,
     "heatmap_sigma": 3.0,
     "mask_loss_weight": 0.5,
-    "heatmap_loss_weight": 2.0,
+    "heatmap_loss_weight": 1.0,
     "coord_loss_weight": 3.0,
 }
 
@@ -297,7 +297,7 @@ def make_targets(corners, *, orig_w, orig_h, img_size, defaults):
     }
 
 
-def soft_argmax_decode(heatmaps, beta=20.0):
+def soft_argmax_decode(heatmaps, beta=15.0):
     b, c, h, w = heatmaps.shape
     flat = heatmaps.view(b, c, -1)
     probs = torch.softmax(flat * beta, dim=-1)
