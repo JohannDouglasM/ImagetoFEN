@@ -20,10 +20,10 @@ import torch.optim as optim
 from torchvision import models
 
 DEFAULTS = {
-    "candidate_name": "gray_edges_unet_dual_head_bs16_wd5e2_lr2e4_euclid_coord_beta2_98",
+    "candidate_name": "gray_edges_unet_dual_head_bs32_wd5e2_lr2e4_euclid_coord_beta2_98",
     "img_size": 384,
     "input_mode": "gray_edges",
-    "batch_size": 16,
+    "batch_size": 32,
     "lr": 0.00020,
     "weight_decay": 0.05,
     "eval_interval_s": 300.0,
