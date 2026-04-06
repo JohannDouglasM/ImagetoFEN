@@ -20,12 +20,12 @@ import torch.optim as optim
 from torchvision import models
 
 DEFAULTS = {
-    "candidate_name": "gray_edges_unet_dual_head_bs32_wd2e2_lr3e4_hmw1_term2pct",
+    "candidate_name": "gray_edges_unet_dual_head_bs32_wd3e2_lr3e4_hmw1_b2_999",
     "img_size": 384,
     "input_mode": "gray_edges",
     "batch_size": 32,
     "lr": 0.00030,
-    "weight_decay": 0.02,
+    "weight_decay": 0.03,
     "eval_interval_s": 300.0,
     "train_splits": "chessred2k:train,user:train,chess_dataset_recovered:train,synthetic:train",
     "val_splits": "chessred2k:val,chess_dataset_recovered:val,synthetic:val",
@@ -349,7 +349,7 @@ def decode_coords(outputs):
 
 
 def create_optimizer(model, *, lr, weight_decay, resumed):
-    return optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay, betas=(0.9, 0.98), amsgrad=True)
+    return optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay, betas=(0.9, 0.999), amsgrad=True)
 
 
 def create_scheduler(optimizer, *, total_train_steps):
