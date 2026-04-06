@@ -20,7 +20,7 @@ import torch.optim as optim
 from torchvision import models
 
 DEFAULTS = {
-    "candidate_name": "gray_edges_unet_dual_head_bs32_wd3e2_lr3e4_hmw1_b2_98",
+    "candidate_name": "gray_edges_unet_dual_head_bs32_wd3e2_lr3e4_hmw1_cw4_b2_98",
     "img_size": 384,
     "input_mode": "gray_edges",
     "batch_size": 32,
@@ -37,7 +37,7 @@ DEFAULTS = {
     "heatmap_sigma": 3.0,
     "mask_loss_weight": 0.5,
     "heatmap_loss_weight": 1.0,
-    "coord_loss_weight": 3.0,
+    "coord_loss_weight": 4.0,
 }
 
 INPUT_MODE_TO_CHANNELS = {
