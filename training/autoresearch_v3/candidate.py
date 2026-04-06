@@ -20,10 +20,10 @@ import torch.optim as optim
 from torchvision import models
 
 DEFAULTS = {
-    "candidate_name": "gray_edges_unet_dual_head_bs32_wd3e2_lr3e4_hmw1_term5pct",
+    "candidate_name": "gray_edges_unet_dual_head_bs24_wd3e2_lr3e4_hmw1_term2pct",
     "img_size": 384,
     "input_mode": "gray_edges",
-    "batch_size": 32,
+    "batch_size": 24,
     "lr": 0.00030,
     "weight_decay": 0.03,
     "eval_interval_s": 300.0,
@@ -353,7 +353,7 @@ def create_optimizer(model, *, lr, weight_decay, resumed):
 
 
 def create_scheduler(optimizer, *, total_train_steps):
-    gamma = 0.05 ** (1.0 / max(1, total_train_steps))
+    gamma = 0.02 ** (1.0 / max(1, total_train_steps))
     return optim.lr_scheduler.ExponentialLR(optimizer, gamma=gamma)
 
 
