@@ -45,7 +45,7 @@ DEFAULTS = {
     "candidate_name": "resnet18_whole_board_baseline",
     "img_size": 256,
     "input_mode": "rgb",
-    "batch_size": 32,
+    "batch_size": 24,
     "lr": 3e-4,
     "weight_decay": 0.03,
     "eval_interval_s": 300.0,
@@ -198,7 +198,7 @@ def make_targets(corners, pieces, *, orig_w, orig_h, img_size, defaults):
 def compute_loss(outputs, targets):
     logits = outputs["logits"]
     labels = targets["labels"]
-    loss = F.cross_entropy(logits, labels, label_smoothing=0.1)
+    loss = F.cross_entropy(logits, labels)
     with torch.no_grad():
         preds = logits.argmax(dim=1)
         cell_acc = (preds == labels).float().mean().item()
