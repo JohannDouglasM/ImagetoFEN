@@ -542,6 +542,29 @@ Experiment priority guidance:
 - When evidence is mixed, choose one of the primary families above instead of another augmentation-style micro-tweak.
 - Treat architecture/model-head changes as lower priority than the primary families unless they directly support a target-parameterization hypothesis.
 
+CRITICAL — Prior agent findings (22 experiments, best combined_mean = 0.00537):
+A previous research agent ran 22 experiments and found a winning recipe that achieved
+0.00537 combined mean distance. You MUST incorporate ALL of these changes:
+
+1. ExponentialLR scheduler (gamma calibrated so LR decays to ~2% by end of training).
+   This was the SINGLE BIGGEST improvement, dropping from 0.00655 to 0.00537.
+   Do NOT use CosineAnnealing or warmup+cosine — use ExponentialLR.
+2. batch_size in range 16–32 (sweet spot; 20–32 all worked well)
+3. lr = 3e-4 (do not go lower to 2e-4, that hurt)
+4. weight_decay = 0.03 (3x the old default of 0.01; reducing back to 0.01 hurt)
+5. coord_loss_weight = 2.0 (doubled from 1.0; strengthens coordinate regression signal)
+6. AdamW with amsgrad=True
+
+Things that HURT and must be avoided:
+- Linear warmup + cosine decay — worse than ExponentialLR
+- Lowering lr to 2e-4 — worse
+- soft_argmax_beta=40 — worse
+- heatmap_sigma=2.0 (sharper targets) — worse
+- Reducing weight_decay back to 0.01 — worse
+
+Start by applying ALL of the winning recipe above as the baseline, then explore
+refinements from there. Do not regress any of these settings without strong evidence.
+
 Your task:
 - use the prompt-provided history as the default source of truth
 - read training/autoresearch_v3/program.md only if the prompt history is insufficient

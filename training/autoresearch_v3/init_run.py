@@ -18,6 +18,17 @@ TEMPLATES_DIR = THIS_DIR / "templates"
 TRACK_TO_TEMPLATE = {
     "resnet_coords": TEMPLATES_DIR / "resnet_coords.py",
     "unet_dual_head": TEMPLATES_DIR / "unet_dual_head.py",
+    "whole_board_classifier": TEMPLATES_DIR / "whole_board_classifier.py",
+}
+TRACK_TO_HARNESS = {
+    "resnet_coords": "fixed_harness.py",
+    "unet_dual_head": "fixed_harness.py",
+    "whole_board_classifier": "fixed_harness_board.py",
+}
+TRACK_TO_PROGRAM = {
+    "resnet_coords": "program.md",
+    "unet_dual_head": "program.md",
+    "whole_board_classifier": "program_whole_board.md",
 }
 
 
@@ -45,7 +56,7 @@ def parse_args():
     parser.add_argument(
         "--worktree-root",
         type=str,
-        default="/tmp/codexchess_autoresearch",
+        default="/home/johann/autoresearch",
         help="Parent directory for dedicated run worktrees",
     )
     return parser.parse_args()
@@ -81,6 +92,23 @@ def main():
     )
     candidate_path = dst_autoresearch_dir / "candidate.py"
     shutil.copy2(TRACK_TO_TEMPLATE[args.track], candidate_path)
+
+    # Overwrite the worktree's fixed_harness.py with the track-specific
+    # harness so run_commit.py / llm_controller.py keep seeing the single
+    # stable name while the underlying eval engine matches the track.
+    harness_name = TRACK_TO_HARNESS.get(args.track, "fixed_harness.py")
+    harness_src = THIS_DIR / harness_name
+    if not harness_src.exists():
+        raise RuntimeError(f"Harness file missing for track {args.track}: {harness_src}")
+    shutil.copy2(harness_src, dst_autoresearch_dir / "fixed_harness.py")
+
+    # Install the track-specific program.md so the controller reads the
+    # right goals.
+    program_name = TRACK_TO_PROGRAM.get(args.track, "program.md")
+    program_src = THIS_DIR / program_name
+    if not program_src.exists():
+        raise RuntimeError(f"Program file missing for track {args.track}: {program_src}")
+    shutil.copy2(program_src, dst_autoresearch_dir / "program.md")
 
     run_dir = worktree_dir / "training" / "autoresearch_v3" / "runs" / run_name
     run_dir.mkdir(parents=True, exist_ok=True)

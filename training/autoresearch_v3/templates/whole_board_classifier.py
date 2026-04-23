@@ -52,7 +52,7 @@ DEFAULTS = {
     "train_splits": "chessred2k:train,chess_dataset_recovered:train,synthetic:train",
     "val_splits": "chessred2k:val,chess_dataset_recovered:val,synthetic:val,user:train",
     "report_splits": "chessred2k:val,chess_dataset_recovered:val,synthetic:val,user:train",
-    "max_no_improve_evals": 12,
+    "max_no_improve_evals": 8,
     "resume_candidates": [],
     "allow_legacy_resume_fallback": False,
 }

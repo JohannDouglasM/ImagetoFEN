@@ -13,7 +13,7 @@ from typing import Dict, List, Optional
 THIS_DIR = Path(__file__).resolve().parent
 TRAINING_DIR = THIS_DIR.parent
 REPO_ROOT = TRAINING_DIR.parent
-DEFAULT_WORKTREE_ROOT = Path("/tmp/codexchess_autoresearch")
+DEFAULT_WORKTREE_ROOT = Path("/home/johann/autoresearch")
 TRACK_DEFAULTS: Dict[str, Dict[str, object]] = {
     "resnet_coords": {
         "initial_description": "baseline",
@@ -24,6 +24,12 @@ TRACK_DEFAULTS: Dict[str, Dict[str, object]] = {
     "unet_dual_head": {
         "initial_description": "baseline dual-head unet",
         "baseline_commit_message": "baseline: unet dual-head template",
+        "time_budget_s": 3600.0,
+        "eval_interval_s": 300.0,
+    },
+    "whole_board_classifier": {
+        "initial_description": "baseline whole-board classifier",
+        "baseline_commit_message": "baseline: whole-board classifier template",
         "time_budget_s": 3600.0,
         "eval_interval_s": 300.0,
     },
@@ -126,7 +132,15 @@ def infer_tag_from_branch(worktree: Path) -> str:
 
 
 def commit_baseline_if_needed(worktree: Path, track: str) -> bool:
-    status_output = git(worktree, ["status", "--porcelain"])
+    # Use subprocess directly to preserve raw porcelain format (leading spaces matter)
+    result = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=str(worktree),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    status_output = result.stdout
     changed_files = parse_changed_files(status_output)
     if not changed_files:
         return False
