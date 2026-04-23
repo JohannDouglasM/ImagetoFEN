@@ -198,7 +198,7 @@ def make_targets(corners, pieces, *, orig_w, orig_h, img_size, defaults):
 def compute_loss(outputs, targets):
     logits = outputs["logits"]
     labels = targets["labels"]
-    loss = F.cross_entropy(logits, labels)
+    loss = F.cross_entropy(logits, labels, label_smoothing=0.1)
     with torch.no_grad():
         preds = logits.argmax(dim=1)
         cell_acc = (preds == labels).float().mean().item()
