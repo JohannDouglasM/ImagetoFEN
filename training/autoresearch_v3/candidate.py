@@ -47,7 +47,7 @@ DEFAULTS = {
     "input_mode": "rgb",
     "batch_size": 32,
     "lr": 3e-4,
-    "weight_decay": 0.01,
+    "weight_decay": 0.03,
     "eval_interval_s": 300.0,
     "train_splits": "chessred2k:train,chess_dataset_recovered:train,synthetic:train",
     "val_splits": "chessred2k:val,chess_dataset_recovered:val,synthetic:val,user:train",
@@ -225,14 +225,14 @@ def create_optimizer(model, *, lr, weight_decay, resumed):
         lr=effective_lr,
         weight_decay=weight_decay,
         betas=(0.9, 0.999),
+        amsgrad=True,
     )
 
 
 def create_scheduler(optimizer, *, total_train_steps):
-    return optim.lr_scheduler.CosineAnnealingLR(
-        optimizer,
-        T_max=max(1, total_train_steps),
-    )
+    # Decay LR to ~2% of initial by end of training
+    gamma = (0.02) ** (1.0 / max(1, total_train_steps))
+    return optim.lr_scheduler.ExponentialLR(optimizer, gamma=gamma)
 
 
 def load_checkpoint(model, checkpoint_state):
