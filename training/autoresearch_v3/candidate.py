@@ -157,6 +157,21 @@ class WholeBoardClassifier(nn.Module):
         self.layer2 = backbone.layer2
         self.layer3 = backbone.layer3
         self.layer4 = backbone.layer4
+
+        self.cell_pos_embed = nn.Parameter(torch.zeros(1, 64, 512))
+        nn.init.trunc_normal_(self.cell_pos_embed, std=0.02)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=512,
+            nhead=8,
+            dim_feedforward=1024,
+            dropout=0.0,
+            activation="gelu",
+            batch_first=True,
+            norm_first=True,
+        )
+        self.cell_attn = nn.TransformerEncoder(encoder_layer, num_layers=1)
+        self.cell_norm = nn.LayerNorm(512)
+
         self.head = nn.Conv2d(512, NUM_CLASSES, kernel_size=1)
 
     def forward(self, x):
@@ -167,6 +182,12 @@ class WholeBoardClassifier(nn.Module):
         x = self.layer4(x)
         if x.shape[-2:] != (8, 8):
             x = F.adaptive_avg_pool2d(x, (8, 8))
+        b, c, h, w = x.shape
+        tokens = x.flatten(2).transpose(1, 2)
+        tokens = tokens + self.cell_pos_embed
+        tokens = self.cell_attn(tokens)
+        tokens = self.cell_norm(tokens)
+        x = tokens.transpose(1, 2).reshape(b, c, h, w)
         logits = self.head(x)
         return {"logits": logits}
 
