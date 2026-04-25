@@ -203,6 +203,15 @@ class WholeBoardClassifier(nn.Module):
         self.layer3 = backbone.layer3
         self.layer4 = backbone.layer4
 
+        # FPN-style lateral from layer3 (256ch, 16x16) into layer4 (512ch, 8x8).
+        # Zero-init keeps initial behavior identical to the prior architecture so
+        # a checkpoint resume of the existing transformer/head/backbone is a
+        # no-op fine-tune; the lateral then grows in to inject finer-grained
+        # silhouette detail per cell, which layer4 has averaged out.
+        self.lateral_l3 = nn.Conv2d(256, 512, kernel_size=1)
+        nn.init.zeros_(self.lateral_l3.weight)
+        nn.init.zeros_(self.lateral_l3.bias)
+
         self.cell_pos_embed = nn.Parameter(torch.zeros(1, 64, 512))
         nn.init.trunc_normal_(self.cell_pos_embed, std=0.02)
         encoder_layer = nn.TransformerEncoderLayer(
@@ -227,10 +236,14 @@ class WholeBoardClassifier(nn.Module):
         x = self.stem(x)
         x = self.layer1(x)
         x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        if x.shape[-2:] != (8, 8):
-            x = F.adaptive_avg_pool2d(x, (8, 8))
+        x3 = self.layer3(x)
+        x4 = self.layer4(x3)
+        if x4.shape[-2:] != (8, 8):
+            x4 = F.adaptive_avg_pool2d(x4, (8, 8))
+        x3_pooled = x3
+        if x3_pooled.shape[-2:] != (8, 8):
+            x3_pooled = F.adaptive_avg_pool2d(x3_pooled, (8, 8))
+        x = x4 + self.lateral_l3(x3_pooled)
         b, c, h, w = x.shape
         tokens = x.flatten(2).transpose(1, 2)
         tokens = tokens + self.cell_pos_embed
