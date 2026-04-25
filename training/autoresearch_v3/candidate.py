@@ -62,6 +62,28 @@ INPUT_MODE_TO_CHANNELS = {"rgb": 3}
 NUM_CLASSES = 13
 EMPTY_CLASS_ID = 6
 
+# Factorized class structure for auxiliary losses.
+# Class layout: 0..5 black (b,k,n,p,q,r), 6 empty, 7..12 white (B,K,N,P,Q,R).
+# Color groups: 0=black, 1=empty, 2=white.
+_COLOR_GROUPS = [
+    [0, 1, 2, 3, 4, 5],
+    [6],
+    [7, 8, 9, 10, 11, 12],
+]
+# Type groups: 0=empty, 1=bishop, 2=king, 3=knight, 4=pawn, 5=queen, 6=rook.
+_TYPE_GROUPS = [
+    [6],
+    [0, 7],
+    [1, 8],
+    [2, 9],
+    [3, 10],
+    [4, 11],
+    [5, 12],
+]
+_CLASS_TO_COLOR = [0, 0, 0, 0, 0, 0, 1, 2, 2, 2, 2, 2, 2]
+_CLASS_TO_TYPE = [1, 2, 3, 4, 5, 6, 0, 1, 2, 3, 4, 5, 6]
+AUX_FACTOR_LOSS_WEIGHT = 0.3
+
 IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(3, 1, 1)
 IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(3, 1, 1)
 
@@ -220,15 +242,40 @@ def make_targets(corners, pieces, *, orig_w, orig_h, img_size, defaults):
     return {"labels": torch.from_numpy(labels)}
 
 
+def _marginalize_logits(logits, groups):
+    # Combine class-channel logits into group-channel logits via logsumexp.
+    parts = []
+    for group in groups:
+        idx = torch.tensor(group, device=logits.device, dtype=torch.long)
+        parts.append(torch.logsumexp(logits.index_select(1, idx), dim=1, keepdim=True))
+    return torch.cat(parts, dim=1)
+
+
 def compute_loss(outputs, targets):
     logits = outputs["logits"]
     labels = targets["labels"]
-    loss = F.cross_entropy(logits, labels)
+    main_loss = F.cross_entropy(logits, labels)
+
+    color_map = torch.tensor(_CLASS_TO_COLOR, device=labels.device, dtype=torch.long)
+    type_map = torch.tensor(_CLASS_TO_TYPE, device=labels.device, dtype=torch.long)
+    color_targets = color_map[labels]
+    type_targets = type_map[labels]
+
+    color_logits = _marginalize_logits(logits, _COLOR_GROUPS)
+    type_logits = _marginalize_logits(logits, _TYPE_GROUPS)
+
+    color_loss = F.cross_entropy(color_logits, color_targets)
+    type_loss = F.cross_entropy(type_logits, type_targets)
+    aux_loss = color_loss + type_loss
+    loss = main_loss + AUX_FACTOR_LOSS_WEIGHT * aux_loss
+
     with torch.no_grad():
         preds = logits.argmax(dim=1)
         cell_acc = (preds == labels).float().mean().item()
     return loss, {
-        "ce_loss": float(loss.detach().item()),
+        "ce_loss": float(main_loss.detach().item()),
+        "color_loss": float(color_loss.detach().item()),
+        "type_loss": float(type_loss.detach().item()),
         "cell_acc": float(cell_acc),
     }
 
