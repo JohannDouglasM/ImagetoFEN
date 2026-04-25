@@ -118,6 +118,23 @@ def augment_image(image_bgr, rng):
     beta = float(rng.uniform(-30.0, 30.0))
     img = np.clip(alpha * img + beta, 0, 255)
 
+    # Directional illumination gradient: simulates the uneven room lighting
+    # present in chessred2k angled phone photos but largely absent from the
+    # evenly-lit top-down recovered/synthetic boards the model trains on.
+    if rng.random() < 0.6:
+        h, w = img.shape[:2]
+        angle = float(rng.uniform(0.0, 2.0 * np.pi))
+        dx = float(np.cos(angle))
+        dy = float(np.sin(angle))
+        yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+        cx = (w - 1) * 0.5
+        cy = (h - 1) * 0.5
+        denom = float(max(w, h))
+        proj = ((xx - cx) * dx + (yy - cy) * dy) / denom
+        strength = float(rng.uniform(0.2, 0.55))
+        gradient = 1.0 + proj * strength
+        img = np.clip(img * gradient[..., None], 0, 255)
+
     if rng.random() < 0.4:
         hsv = cv2.cvtColor(img.astype(np.uint8), cv2.COLOR_BGR2HSV).astype(np.float32)
         hsv[..., 0] = (hsv[..., 0] + float(rng.uniform(-8.0, 8.0))) % 180.0
