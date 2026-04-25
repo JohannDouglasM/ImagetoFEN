@@ -169,7 +169,7 @@ class WholeBoardClassifier(nn.Module):
             batch_first=True,
             norm_first=True,
         )
-        self.cell_attn = nn.TransformerEncoder(encoder_layer, num_layers=1)
+        self.cell_attn = nn.TransformerEncoder(encoder_layer, num_layers=2)
         self.cell_norm = nn.LayerNorm(512)
 
         self.head = nn.Sequential(
