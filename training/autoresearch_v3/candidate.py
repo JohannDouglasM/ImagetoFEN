@@ -42,7 +42,7 @@ import torch.optim as optim
 from torchvision import models
 
 DEFAULTS = {
-    "candidate_name": "resnet18_whole_board_baseline",
+    "candidate_name": "resnet34_whole_board",
     "img_size": 256,
     "input_mode": "rgb",
     "batch_size": 24,
@@ -152,11 +152,17 @@ def convert_conv1_weights(conv_weight, input_channels):
 class WholeBoardClassifier(nn.Module):
     def __init__(self, input_channels):
         super().__init__()
-        backbone = models.resnet18(weights=None)
-        cached = Path.home() / ".cache" / "torch" / "hub" / "checkpoints" / "resnet18-f37072fd.pth"
+        backbone = models.resnet34(weights=None)
+        cached = Path.home() / ".cache" / "torch" / "hub" / "checkpoints" / "resnet34-b627a593.pth"
         if cached.exists():
             state = torch.load(cached, map_location="cpu", weights_only=True)
             backbone.load_state_dict(state)
+        else:
+            try:
+                weights = models.ResNet34_Weights.IMAGENET1K_V1
+                backbone = models.resnet34(weights=weights)
+            except Exception:
+                pass
 
         if input_channels != 3:
             original = backbone.conv1
