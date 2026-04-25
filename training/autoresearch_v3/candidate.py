@@ -172,7 +172,11 @@ class WholeBoardClassifier(nn.Module):
         self.cell_attn = nn.TransformerEncoder(encoder_layer, num_layers=1)
         self.cell_norm = nn.LayerNorm(512)
 
-        self.head = nn.Conv2d(512, NUM_CLASSES, kernel_size=1)
+        self.head = nn.Sequential(
+            nn.Conv2d(512, 256, kernel_size=1),
+            nn.GELU(),
+            nn.Conv2d(256, NUM_CLASSES, kernel_size=1),
+        )
 
     def forward(self, x):
         x = self.stem(x)
