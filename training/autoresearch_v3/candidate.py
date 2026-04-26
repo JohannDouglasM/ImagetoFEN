@@ -83,6 +83,7 @@ _TYPE_GROUPS = [
 _CLASS_TO_COLOR = [0, 0, 0, 0, 0, 0, 1, 2, 2, 2, 2, 2, 2]
 _CLASS_TO_TYPE = [1, 2, 3, 4, 5, 6, 0, 1, 2, 3, 4, 5, 6]
 AUX_FACTOR_LOSS_WEIGHT = 0.3
+FOCAL_GAMMA = 2.0
 
 IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(3, 1, 1)
 IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(3, 1, 1)
@@ -287,10 +288,21 @@ def _marginalize_logits(logits, groups):
     return torch.cat(parts, dim=1)
 
 
+def _focal_ce(logits, labels, gamma):
+    # Focal cross-entropy: down-weights easy/confident cells so gradient
+    # concentrates on the few hard cells per board (typically angled
+    # small pieces) that drive the chessred2k:val plateau.
+    log_probs = F.log_softmax(logits, dim=1)
+    nll = F.nll_loss(log_probs, labels, reduction="none")
+    pt = torch.exp(-nll).clamp(max=1.0)
+    weight = (1.0 - pt).pow(gamma)
+    return (weight * nll).mean()
+
+
 def compute_loss(outputs, targets):
     logits = outputs["logits"]
     labels = targets["labels"]
-    main_loss = F.cross_entropy(logits, labels)
+    main_loss = _focal_ce(logits, labels, FOCAL_GAMMA)
 
     color_map = torch.tensor(_CLASS_TO_COLOR, device=labels.device, dtype=torch.long)
     type_map = torch.tensor(_CLASS_TO_TYPE, device=labels.device, dtype=torch.long)
