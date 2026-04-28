@@ -82,7 +82,7 @@ _TYPE_GROUPS = [
 ]
 _CLASS_TO_COLOR = [0, 0, 0, 0, 0, 0, 1, 2, 2, 2, 2, 2, 2]
 _CLASS_TO_TYPE = [1, 2, 3, 4, 5, 6, 0, 1, 2, 3, 4, 5, 6]
-AUX_FACTOR_LOSS_WEIGHT = 0.5
+AUX_FACTOR_LOSS_WEIGHT = 0.3
 FOCAL_GAMMA = 2.0
 LABEL_SMOOTHING = 0.1
 
@@ -355,8 +355,10 @@ def create_optimizer(model, *, lr, weight_decay, resumed):
 
 
 def create_scheduler(optimizer, *, total_train_steps):
-    # Decay LR to ~2% of initial by end of training
-    gamma = (0.02) ** (1.0 / max(1, total_train_steps))
+    # Decay LR to ~5% of initial by end of training — less aggressive than 2%
+    # so the model retains useful gradient signal in later steps where
+    # chessred2k-domain examples are still difficult to classify correctly.
+    gamma = (0.05) ** (1.0 / max(1, total_train_steps))
     return optim.lr_scheduler.ExponentialLR(optimizer, gamma=gamma)
 
 
