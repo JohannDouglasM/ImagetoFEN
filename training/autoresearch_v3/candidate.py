@@ -82,8 +82,8 @@ _TYPE_GROUPS = [
 ]
 _CLASS_TO_COLOR = [0, 0, 0, 0, 0, 0, 1, 2, 2, 2, 2, 2, 2]
 _CLASS_TO_TYPE = [1, 2, 3, 4, 5, 6, 0, 1, 2, 3, 4, 5, 6]
-AUX_FACTOR_LOSS_WEIGHT = 0.3
-FOCAL_GAMMA = 1.5
+AUX_FACTOR_LOSS_WEIGHT = 0.5
+FOCAL_GAMMA = 2.0
 LABEL_SMOOTHING = 0.1
 
 IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(3, 1, 1)
