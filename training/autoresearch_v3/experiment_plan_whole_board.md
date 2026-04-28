@@ -1,40 +1,49 @@
 # Whole-Board Classifier: Experiment Roadmap
 
-Seeded experiments for the autoresearch LLM controller to consider first. Each entry is a hypothesis, not a prescription — the controller is free to pick a different direction once the baseline results land.
+> **Status note (2026-04-28)**: this roadmap was the seed for the loop's first iterations. Outcomes from the 32 commits to date are inlined per section so the controller doesn't re-propose discarded experiments. The current best is commit `0399b00` (combined cell_err 0.029, ResNet-34 + cell-attention transformer + 2-layer MLP head). For the canonical "what to try next" list, see `program_whole_board.md`.
 
-## 1. Baseline
+## 1. Baseline ✅ (superseded)
 
-ResNet-18 (ImageNet) + `Conv2d(512, 13, 1)` on the natural `[B, 512, 8, 8]` feature map. Per-cell cross-entropy, AdamW, cosine LR. This is the template candidate; first commit runs it as-is to get a number on the board.
+Original baseline: ResNet-18 + `Conv2d(512, 13, 1)`. **Now obsolete** — current best uses ResNet-34 + cell-attention + 2-layer MLP head (commit `0399b00`).
 
-## 2. Augmentation sweep
+## 2. Augmentation sweep — partial
 
-Color jitter strength (alpha/beta ranges in `augment_image`), HSV hue/saturation jitter, gaussian blur probability, and single-cell random erasing probability. No geometric augmentation — the board is already warped.
+Color jitter, HSV, blur, single-cell erasing are all in `augment_image`. No explicit standalone sweep was logged as a keep; behavior is folded into the current candidate. **Heavier augmentation** (wider alpha/beta ranges, larger erasing patches) is still untried.
 
-## 3. Class-balanced loss
+## 3. Class-balanced loss ❌ (all variants discarded)
 
-Empty squares are ~50% of cells. Plain CE biases toward predicting empty. Try:
-- CE with class weights inversely proportional to training-set frequency.
-- Focal loss (γ ∈ {1.0, 2.0}).
-- Label smoothing (ε ∈ {0.05, 0.1}).
+- Plain CE: kept as the loss in current best.
+- **Label smoothing ε ∈ {0.05, 0.1}**: ❌ discarded (`66f23ed`, `9c2e03c`).
+- **Focal loss γ ∈ {1.0, 2.0}**: ❌ discarded (`43812fd` reverted at `6811cfb`; `0316565`).
+- **Inverse-frequency class weights**: not tried, but the dominant residual is *piece-vs-piece* confusion (bishop/knight shape ambiguity), not piece-vs-empty class imbalance — class weighting would address the wrong problem.
 
-## 4. Larger backbone
+## 4. Larger backbone — partial
 
-If ResNet-18 plateaus, try ResNet-34 or EfficientNet-B0. Watch inference-time budget: the whole-board win is partly about going from 64 forward passes to 1, so a big backbone that's slower than 64× ResNet-18 would erase the gain.
+- **ResNet-34**: ✅ kept as current best (`0399b00`, +0.25pp over ResNet-18).
+- **ResNet-50**: ❌ hard regression, discarded (`92f0513`). Don't retry without architecture changes (e.g. proper channel reducer for the 2048-dim layer4 output).
+- **EfficientNet-B0**: untried. Plausible candidate.
 
-## 5. Head capacity
+## 5. Head capacity ✅ (in current best)
 
-Replace the 1×1 conv head with:
-- 2-layer MLP on each cell (`Conv2d(512, 256, 1) → ReLU → Conv2d(256, 13, 1)`).
-- A small decoder: one conv block that attends to neighboring cells before classifying, so a queen overflowing into a neighbor's square can still be resolved correctly.
+- **2-layer MLP head** (`Conv2d(512, 256, 1) → GELU → Conv2d(256, 13, 1)`): ✅ kept (`974644f`).
+- **2-layer TransformerEncoder cell-attention** before the MLP head: ✅ kept (`974644f`, descended from `68e3ba0`).
+- **Don't split this further**: cell-attn + MLP head is the winning recipe; adding a third stage on top hasn't been tested but expectations are low.
 
-## 6. Input margin
+## 6. Input margin — UNTRIED, prioritize
 
-If back-rank accuracy lags (pieces whose tops extend above the board plane after warping get clipped), rewarp with a small top-margin and input size 320 or 384 instead of 256. The baseline uses no margin because the global receptive field should see piece tops anyway, but this is worth checking experimentally.
+Re-warp to a slightly larger destination quad (e.g. add 5–10% margin on top), crop or pad to 256², so back-rank piece tops aren't clipped. This is the most-promising untried item from the original roadmap. The 2026-04-27 failure analysis found errors are not concentrated in the back rank, but pieces in middle ranks may still be partially clipped near the warp boundary on extreme angles.
 
-## 7. Resolution scaling
+## 7. Resolution scaling ❌ (discarded twice)
 
-Input size 320 or 384 with `adaptive_avg_pool2d(x, (8, 8))` before the head. Gives the backbone more pixels per cell — useful for the `chessred2k` split where pieces are small relative to the full board.
+- **320 px**: ❌ hard regression (`65db0b4`).
+- **384 px** (within autoresearch loop): ❌ hard regression (`d0712fb`).
+- **384 px** (manual train, resume from 256 best, 2026-04-27): ❌ overfit, −1.4pp combined.
+- Conclusion: don't retry without changing the input pipeline (e.g. progressive resize, train at higher res from ImageNet init with longer schedule).
 
 ## Loop diversity
 
-From the corner-detection run: the controller tends to over-focus on one experiment family once it finds a small improvement. Prefer a spread across these first few directions before iterating within one family. The promotion policy in `run_commit.py` is the same as the corner track; trust it.
+- The controller tends to over-focus on a family once it finds a small improvement. Spread across new directions when you can. From here:
+  - Top margin (§6) is the top untried.
+  - Heavier augmentation (§2) is cheap to test.
+  - EfficientNet-B0 (§4) is the only remaining promising backbone variant.
+- Promotion policy in `run_commit.py` is unchanged from the corner track — trust it.

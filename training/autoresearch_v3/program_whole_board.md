@@ -8,12 +8,13 @@ Autonomous research loop for the whole-board chess piece classifier.
 - Do not edit `fixed_harness.py`, validation logic, result schema, or promotion rules.
 - Do not change validation data or metrics.
 - Do not retrain or modify the corner detector — it is frozen. Training uses GT corners from `annotations.json`.
+- **Out of scope**: the production pipeline now uses a two-stage refinement (whole-board + piece-only ResNet-18 on per-cell crops; see `/home/johann/ImagetoFEN/training/two_stage/`). The piece classifier is *not* part of this autoresearch track. The loop optimizes only the whole-board candidate.
 - Prefer simple changes when gains are small.
 
 ## Goal
 
-- Minimize combined validation `mean_dist`. In this track `mean_dist` is the **per-cell error rate** (fraction of the 64 cells per board that are predicted incorrectly), averaged across the combined val set. Lower is better. The schema key is reused from the corner track so the controller, `run_commit.py`, and `results.tsv` keep working unchanged — the semantics differ, but the direction (lower = better) is the same.
-- Secondary signal: `per_corner[1]` = **per-board error rate** (fraction of boards with any wrong cell). Also lower-is-better.
+- Minimize combined validation `mean_dist`. In this track `mean_dist` is the **per-cell error rate** (fraction of the 64 cells per board that are predicted incorrectly), averaged across the combined val set. Lower is better.
+- Secondary signal: `per_corner[1]` = **per-board error rate** (fraction of boards with any wrong cell).
 - Do not materially regress `chess_dataset_recovered:val` (top-down, clean domain) beyond ~+0.005 cell error.
 - Do not materially regress `chessred2k:val` beyond ~+0.01 cell error.
 - Do not materially worsen `max_dist` (worst-board cell error) or `p95_dist`.
@@ -22,7 +23,9 @@ Autonomous research loop for the whole-board chess piece classifier.
 
 The model takes a 256×256 RGB **warped** board (warped upstream by `BoardDataset` using GT corners) and outputs a `[B, 13, 8, 8]` classification tensor — 13 classes per cell. The 13 classes and their IDs must match `src/ml/inference.ts:CLASS_TO_PIECE` so the existing FEN builder and on-device inference path work unchanged.
 
-Baseline architecture: ImageNet-pretrained ResNet-18 + a `Conv2d(512, 13, 1)` head on the natural 8×8 feature map from `layer4` at input 256. Baseline loss: plain per-cell cross-entropy.
+## Current best
+
+ResNet-34 backbone + 2-layer cell-attention TransformerEncoder + `Conv2d(512, 256, 1) → GELU → Conv2d(256, 13, 1)` head. Combined cell_err **0.029** (commit `0399b00`, 2026-04-25). Resume from this checkpoint by default.
 
 ## Loop
 
@@ -41,31 +44,47 @@ python3 training/autoresearch_v3/run_commit.py --description "short hypothesis"
 8. Reset on `discard` if needed.
 9. Continue until interrupted.
 
+## What's already been tried
+
+These are recorded in `experiments.jsonl` and `results.tsv` but called out here so the controller doesn't re-propose them:
+
+**Already proven (in the current candidate, do not undo)**
+- ResNet-18 → ResNet-34 backbone: **+0.25pp** (commit `0399b00`).
+- 1×1 conv head → 2-layer MLP head: **kept** (commit `974644f`).
+- 2-layer TransformerEncoder cell-attention block on the 8×8 feature map: **kept** (commit `974644f`, descended from `68e3ba0`).
+- ExponentialLR + amsgrad + weight_decay 0.03: **kept** (commit `b9c740d`).
+- batch_size 24 (vs 16): **kept** (commit `1420a40`).
+
+**Already discarded — do not retry without a substantive change**
+- Label smoothing ε ∈ {0.05, 0.1}: discarded twice (commits `66f23ed`, `9c2e03c`).
+- Focal loss γ = 2.0: discarded (commit `43812fd` reverted at `6811cfb`; also `0316565`).
+- ResNet-50 backbone: hard regression, discarded (`92f0513`).
+- Higher input resolution 320 / 384 px (with adaptive pool): hard regression, discarded twice (`65db0b4`, `d0712fb`). 384 was also tried by manual training resume on 2026-04-27 outside the loop (overfit, −1.4pp).
+
+**Untried (prioritize)**
+- **Top margin on the warp** (warp to a slightly larger destination quad and crop, so piece tops on the back rank aren't clipped). Plausible because back-rank piece overflow was an early hypothesis but no candidate has actually tried it.
+- EfficientNet-B0 backbone (similar parameter count to ResNet-34 with different inductive biases).
+- Heavier color/exposure augmentation (the current `augment_image` is light).
+
 ## Heuristics
 
-- **Prioritize architectural changes over hyperparameter tuning.** The first 10 iterations showed that optimizer/loss/LR tweaks plateau around 3% combined cell error with only marginal differences. The next gains will come from:
-  1. **Larger backbone** (ResNet-34, ResNet-50, EfficientNet-B0) — more capacity to distinguish similar pieces.
-  2. **MLP head** — replace the 1×1 conv with `Conv2d(512, 256, 1) → ReLU → Conv2d(256, 13, 1)` so each cell has more classification capacity.
-  3. **Higher input resolution** (320 or 384 instead of 256) with `adaptive_avg_pool2d(x, (8, 8))` before the head — more pixels per cell helps on chessred2k where pieces are small.
-  4. **Top margin on the warp** — the back rank gets clipped when pieces extend above the board boundary after warping. Try warping to a slightly larger canvas and cropping, or padding the destination quad with a top margin.
-  5. **Attention between neighboring cells** — a small decoder block before the classification head so the model can resolve ambiguity when a piece visually overlaps into a neighbor's cell.
-- Do not spend more iterations on optimizer/LR/loss tuning unless an architectural change specifically requires it.
-- Use split metrics, not just combined mean. The three val splits have very different difficulty profiles: `chess_dataset_recovered` is near-top-down and easy, `chessred2k` is varied angle, `synthetic` is the largest but with random camera poses.
-- Empty squares dominate ~50% of cells; watch for class collapse toward "empty" and use per-class recall to diagnose.
-- Augmentation should focus on color/exposure and single-cell random erasing. No geometric augmentation — the board is already warped.
+- **Architectural changes > hyperparameter tuning.** Hyperparam sweeps already plateaued (see discarded list). Look for changes that affect what features the backbone can learn.
+- Use split metrics, not just combined mean. The three val splits have very different difficulty: `chess_dataset_recovered` is near-top-down and easy (99.6%+), `chessred2k` is varied angle (95.6%, the bottleneck), `synthetic` is essentially solved (99.9%).
+- Empty squares are ~74% of cells in the combined val. Plain CE handles this fine — see discarded class-balanced losses above.
+- Augmentation should focus on color/exposure and single-cell random erasing. **No geometric augmentation** — the board is already warped, and rotations/flips are out-of-distribution for this model. (TTA was tested and regressed; would require retraining with hflip aug.)
 - Use longer budgets for architecture changes than for small tuning tweaks.
 - Don't break the output shape contract: the model must return `{"logits": [B, 13, 8, 8]}` and `decode_coords` must return `[B, 64]` int64 row-major predictions.
 - `make_targets` receives a `pieces` dict (not `corners` — the `corners` arg is None here because the board is already warped upstream).
 
-## Known failure modes (from baseline analysis)
+## Known failure modes (current best, 2026-04-27 analysis)
 
-- ~5% of boards across all datasets are catastrophically wrong (80-97% cells wrong). These boards predict mostly `n`/`K` for every cell, suggesting the model completely fails on certain lighting/angle conditions. Architectural improvements are more likely to fix this than loss tuning.
-- All 5 user images (real phone photos, angled) score 78-91% cell error. The user split is eval-only and represents the real deployment scenario.
-- The worst chessred2k boards are concentrated in group G006 — a specific capture setup/lighting condition.
+- **Bishop & knight shape confusion under perspective** is the dominant residual on chessred2k. Per-class recall: B 0.58, b 0.55, N 0.63, n 0.75 vs P/p at 0.94/0.98 and empty at 0.997. Top off-diagonals: B→P 72, b→r 70, b→p 52, N→R 41.
+- Errors are higher in middle ranks (rows 4–6) than back ranks. The "tall pieces overflow into back rank" hypothesis from the original program is contradicted by the data — it's a uniform shape-recognition problem, not a position-overflow problem.
+- All 5 user images (real phone photos, angled) score ~46% cell error on the current best. Out-of-distribution for what's in train.
 
 ## Context
 
-- Corner detection is already solved (combined mean normalized distance ≈ 0.25% from track `unet_dual_head`, commit `7e15e8e`). Do not touch it.
-- The existing per-square classifier (`training/models/best_square_classifier.pt`) is the comparison baseline. We expect the whole-board model to match or beat its per-cell accuracy and to enable ≥50% fully-correct-board rate — a bar per-square struggles with on steep angles because tall pieces occupy multiple squares.
+- Corner detection is solved (combined mean normalized distance ≈ 0.25% from track `unet_dual_head`, commit `7e15e8e`). Do not touch it.
 - Dataset labeling convention: the `corners` dict in `annotations.json` uses **board-space** labels (`top_left` = a8 regardless of image rotation). `BoardDataset` warps using these labels directly without re-sorting, so row 0 = rank 8 and col 0 = file a always.
 - For synthetic images, piece labels come from FEN in `training/data/data.json` (no `annotations.pieces` entries).
+- `chess_dataset_recovered:val` was cleaned 2026-04-27 (3 corner-rotation-bug images dropped: ids 12875, 12844, 12986). The split now has 97 samples instead of 100. Train splits are unchanged.
