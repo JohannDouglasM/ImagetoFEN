@@ -45,7 +45,7 @@ DEFAULTS = {
     "candidate_name": "resnet34_whole_board",
     "img_size": 256,
     "input_mode": "rgb",
-    "batch_size": 32,
+    "batch_size": 16,
     "lr": 3e-4,
     "weight_decay": 0.03,
     "eval_interval_s": 300.0,
@@ -355,10 +355,7 @@ def create_optimizer(model, *, lr, weight_decay, resumed):
 
 
 def create_scheduler(optimizer, *, total_train_steps):
-    # Decay LR to ~5% of initial by end of training — less aggressive than 2%
-    # so the model retains useful gradient signal in later steps where
-    # chessred2k-domain examples are still difficult to classify correctly.
-    gamma = (0.05) ** (1.0 / max(1, total_train_steps))
+    gamma = (0.02) ** (1.0 / max(1, total_train_steps))
     return optim.lr_scheduler.ExponentialLR(optimizer, gamma=gamma)
 
 
