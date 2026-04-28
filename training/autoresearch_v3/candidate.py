@@ -45,7 +45,7 @@ DEFAULTS = {
     "candidate_name": "resnet34_whole_board",
     "img_size": 256,
     "input_mode": "rgb",
-    "batch_size": 16,
+    "batch_size": 32,
     "lr": 3e-4,
     "weight_decay": 0.03,
     "eval_interval_s": 300.0,
