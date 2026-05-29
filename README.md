@@ -67,17 +67,26 @@ The piece-only refinement model lives at its training run path:
 
 ## What's NOT in the repo
 
+Everything **gitignored** by `.gitignore`. The notable items:
+
 | Item | Local path on dev machine | Size | How to rebuild |
 |---|---|---|---|
-| ChessReD2K dataset | `chessred2k/` | 4.3 GB | <https://chessred.github.io/> |
-| chess-dataset (samryan18, vinyl board) | `chess-dataset/` | 4.4 GB | <https://github.com/samryan18/chess-dataset> |
-| Synthetic renders | `training/data/` | varies | `training/prepare_all_data.py` |
-| Warp cache for piece classifier | `training/two_stage/warp_cache/` | ~1.7 GB | `.venv/bin/python training/two_stage/build_warp_cache.py` (needs `annotations.json` corners) |
-| 384 px experiment outputs | `training/wb_384/run1/` | ~99 MB | Re-run from `training/wb_384/candidate.py` (dead-end, low priority) |
-| Per-square / two-stage / failure-viz dumps | `training/{recovered_audit,crop_test_output,worst_predictions,viz_*.png}` | varies | Re-run the corresponding scripts |
-| User photos (5 imgs) | inside `annotations.json` group `user:train` (metadata only — actual JPEGs are local) | small | Re-take, re-annotate via `training/annotate_corners.py` |
+| ChessReD2K dataset (real photos, corners + pieces) | `chessred2k/` | 4.3 GB | Dataset: [4TU.ResearchData](https://data.4tu.nl/datasets/99b5c721-280b-450b-b058-b2900b69a90f). Code/loader reference: [ThanosM97/end-to-end-chess-recognition](https://github.com/ThanosM97/end-to-end-chess-recognition). Paper: Masouris & van Gemert, *End-to-End Chess Recognition*, [arXiv 2310.04086](https://arxiv.org/abs/2310.04086). |
+| chess-dataset (samryan18, vinyl board photos) | `chess-dataset/` | 4.4 GB | `git clone https://github.com/samryan18/chess-dataset` — or run `.venv/bin/python training/download_datasets.py --samryan18`. |
+| Synthetic 3D renders (chesscog) | `training/data/` | ~varies (we use val+test only, several GB) | OSF project [`xf3ka`](https://osf.io/xf3ka/). Run `.venv/bin/python training/download_datasets.py --chesscog` (uses `osfclient`; downloads `val.zip`+`test.zip`, skips the 3 GB `train.zip` by default). |
+| Warp cache for piece classifier | `training/two_stage/warp_cache/` | ~1.7 GB | `.venv/bin/python training/two_stage/build_warp_cache.py` (needs `annotations.json` corners + the dataset images above). |
+| 384 px whole-board experiment outputs | `training/wb_384/run1/` | ~99 MB | Re-run from `training/wb_384/candidate.py`. Dead-end, low priority — see Status section. |
+| Per-square / failure-viz dumps | `training/{recovered_audit, crop_test_output, worst_predictions}/`, loose `training/viz_*.png` | varies | Re-run the corresponding scripts (`visualize_worst_predictions.py`, `audit_recovered_labels.py`, `test_crop_on_datasets.py`). |
+| Loose viz screenshots at repo root | `feh_*.JPG`, `feh_*.png` | <10 MB | Not regenerable — just `feh` debug captures. Ignore. |
+| Annotation backups | `annotations.json.bak_*`, `chess_dataset_recovered_corners.json` | <1 MB | Optional — only the live `annotations.json` is needed; backups exist for rollback. |
+| `.venv/`, `node_modules/`, build artifacts | — | — | Standard regeneration: `python -m venv .venv && .venv/bin/pip install -r training/requirements.txt`, then `npm install`. |
 
-The truly hard loss if the dev machine is wiped is the **raw dataset images** (8.7 GB combined). Annotations and checkpoints are checked in here. Datasets are public — re-download from the links above.
+**What IS in the repo** (gitignored exceptions force-added in the snapshot commit):
+- `annotations.json` (24 MB) — primary labels.
+- All frozen checkpoints — see [Checked-in model weights](#checked-in-model-weights) above.
+- The 5 user photos at `assets/*.jpeg` (these were already tracked in earlier commits).
+
+**Hard losses if the dev machine is wiped without external backup**: only the raw datasets (`chessred2k/` + `chess-dataset/` + `training/data/`, ~8.7 GB combined). All three are publicly re-downloadable from the links above. The warp cache is large but trivially regeneratable from the datasets.
 
 ## Branches
 
