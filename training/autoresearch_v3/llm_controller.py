@@ -29,16 +29,6 @@ MAX_LOG_TAIL_LINES = 40
 MAX_FAMILY_HISTORY = 16
 MAX_PROPOSAL_ATTEMPTS = 3
 SAME_FAMILY_IMPROVEMENT_THRESHOLD = 0.0003
-PRIMARY_PRIORITY_FAMILIES = [
-    "learning_rate",
-    "batch_size",
-    "optimizer",
-    "target_parameterization",
-]
-SECONDARY_PRIORITY_FAMILIES = [
-    "loss_shaping",
-    "weight_decay",
-]
 KNOWN_FAMILIES = [
     "learning_rate",
     "batch_size",
@@ -53,6 +43,21 @@ KNOWN_FAMILIES = [
     "input_representation",
     "other",
 ]
+TRACK_FAMILY_POLICY = {
+    "resnet_coords": {
+        "primary": ["learning_rate", "batch_size", "optimizer", "target_parameterization"],
+        "secondary": ["loss_shaping", "weight_decay"],
+    },
+    "unet_dual_head": {
+        "primary": ["learning_rate", "batch_size", "optimizer", "target_parameterization"],
+        "secondary": ["loss_shaping", "weight_decay"],
+    },
+    "whole_board_classifier": {
+        "primary": ["model_head", "input_representation", "non_jpeg_augmentation", "loss_shaping"],
+        "secondary": ["target_parameterization", "weight_decay"],
+    },
+}
+DEFAULT_FAMILY_POLICY = TRACK_FAMILY_POLICY["resnet_coords"]
 FAMILY_DISPLAY_NAMES = {
     "learning_rate": "learning rate",
     "batch_size": "batch size",
@@ -69,11 +74,17 @@ FAMILY_DISPLAY_NAMES = {
 }
 
 
-def family_sort_key(family: str) -> Tuple[int, int, str]:
-    if family in PRIMARY_PRIORITY_FAMILIES:
-        return (0, PRIMARY_PRIORITY_FAMILIES.index(family), family)
-    if family in SECONDARY_PRIORITY_FAMILIES:
-        return (1, SECONDARY_PRIORITY_FAMILIES.index(family), family)
+def track_family_lists(track: str) -> Tuple[List[str], List[str]]:
+    policy = TRACK_FAMILY_POLICY.get(track, DEFAULT_FAMILY_POLICY)
+    return policy["primary"], policy["secondary"]
+
+
+def family_sort_key(family: str, track: str) -> Tuple[int, int, str]:
+    primary, secondary = track_family_lists(track)
+    if family in primary:
+        return (0, primary.index(family), family)
+    if family in secondary:
+        return (1, secondary.index(family), family)
     if family == "other":
         return (3, 0, family)
     return (2, KNOWN_FAMILIES.index(family), family)
@@ -266,16 +277,70 @@ def infer_experiment_family(*parts: str) -> str:
         return "decode_calibration"
     if any(token in text for token in ["loss", "smooth_l1", "huber", "weighting"]):
         return "loss_shaping"
-    if any(token in text for token in ["dropout", "head", "backbone", "resnet", "fc", "hidden dim"]):
+    if any(
+        token in text
+        for token in [
+            "dropout",
+            "head",
+            "backbone",
+            "resnet",
+            "resnet18",
+            "resnet34",
+            "resnet50",
+            "resnext",
+            "efficientnet",
+            "convnext",
+            "mobilenet",
+            "vit",
+            "transformer",
+            "attention",
+            "self-attention",
+            "decoder",
+            "mlp head",
+            "2-layer",
+            "two-layer",
+            "fc",
+            "hidden dim",
+            "pretrained",
+            "unfreeze",
+            "freeze",
+            "layer4",
+            "feature map",
+            "global context",
+            "deeper",
+            "larger model",
+        ]
+    ):
         return "model_head"
-    if any(token in text for token in ["gray_edges", "hybrid", "heatmap input", "input mode", "edge"]):
+    if any(
+        token in text
+        for token in [
+            "gray_edges",
+            "hybrid",
+            "heatmap input",
+            "input mode",
+            "edge",
+            "resolution",
+            "img_size",
+            "input size",
+            "image size",
+            "upscale",
+            "upsample",
+            "higher-res",
+            "higher res",
+            "warp margin",
+            "top margin",
+            "padding",
+        ]
+    ):
         return "input_representation"
     if any(token in text for token in ["target", "parameterization", "parametrization", "center+offset"]):
         return "target_parameterization"
     return "other"
 
 
-def build_family_policy(cards: List[Dict[str, Any]]) -> Dict[str, Any]:
+def build_family_policy(cards: List[Dict[str, Any]], track: str) -> Dict[str, Any]:
+    primary, secondary = track_family_lists(track)
     usable = []
     for card in cards:
         description = card.get("description")
@@ -292,6 +357,7 @@ def build_family_policy(cards: List[Dict[str, Any]]) -> Dict[str, Any]:
         )
 
     if not usable:
+        seed = [f for f in primary if f != "other"] + [f for f in secondary if f != "other"]
         return {
             "recent_families": [],
             "current_family": None,
@@ -299,7 +365,7 @@ def build_family_policy(cards: List[Dict[str, Any]]) -> Dict[str, Any]:
             "streak_improvement": None,
             "soft_avoid_family": None,
             "forced_switch_family": None,
-            "suggested_families": [family for family in KNOWN_FAMILIES if family != "other"][:4],
+            "suggested_families": seed[:4],
         }
 
     current_family = usable[-1]["family"]
@@ -349,7 +415,7 @@ def build_family_policy(cards: List[Dict[str, Any]]) -> Dict[str, Any]:
             for family in KNOWN_FAMILIES
             if family != current_family and family != "other"
         ]
-    suggested_families = sorted(suggested_families, key=family_sort_key)
+    suggested_families = sorted(suggested_families, key=lambda f: family_sort_key(f, track))
 
     return {
         "recent_families": usable[-8:],
@@ -483,6 +549,117 @@ def write_controller_artifacts(
     (controller_dir / f"{stem}.stderr.txt").write_text(stderr_text)
 
 
+CORNER_PRIORITY_BLOCK = """Experiment priority guidance:
+- Prefer the next experiments in these primary families: learning rate, batch size, optimizer, target parameterization.
+- Secondary families are: loss design and weight decay.
+- Deprioritize further JPEG, augmentation, and decode-calibration fiddling unless recent evidence is unusually strong.
+- When evidence is mixed, choose one of the primary families above instead of another augmentation-style micro-tweak.
+- Treat architecture/model-head changes as lower priority than the primary families unless they directly support a target-parameterization hypothesis."""
+
+CORNER_CRITICAL_BLOCK = """CRITICAL — Prior agent findings (22 experiments, best combined_mean = 0.00537):
+A previous research agent ran 22 experiments and found a winning recipe that achieved
+0.00537 combined mean distance. You MUST incorporate ALL of these changes:
+
+1. ExponentialLR scheduler (gamma calibrated so LR decays to ~2% by end of training).
+   This was the SINGLE BIGGEST improvement, dropping from 0.00655 to 0.00537.
+   Do NOT use CosineAnnealing or warmup+cosine — use ExponentialLR.
+2. batch_size in range 16–32 (sweet spot; 20–32 all worked well)
+3. lr = 3e-4 (do not go lower to 2e-4, that hurt)
+4. weight_decay = 0.03 (3x the old default of 0.01; reducing back to 0.01 hurt)
+5. coord_loss_weight = 2.0 (doubled from 1.0; strengthens coordinate regression signal)
+6. AdamW with amsgrad=True
+
+Things that HURT and must be avoided:
+- Linear warmup + cosine decay — worse than ExponentialLR
+- Lowering lr to 2e-4 — worse
+- soft_argmax_beta=40 — worse
+- heatmap_sigma=2.0 (sharper targets) — worse
+- Reducing weight_decay back to 0.01 — worse
+
+Start by applying ALL of the winning recipe above as the baseline, then explore
+refinements from there. Do not regress any of these settings without strong evidence."""
+
+CORNER_CHECKPOINT_BLOCK = """Checkpoint policy guidance:
+- Assume the controller may resume training from the current best checkpoint for local refinements.
+- Resume is appropriate for small same-family changes such as mild augmentation, scheduler, loss-weight, or decode-calibration tweaks.
+- Be cautious about proposing architecture, representation, or target changes that really need a from-scratch run to be evaluated fairly.
+- If a hypothesis seems to require from-scratch training to be meaningful, prefer a different experiment family unless the evidence for that larger change is strong."""
+
+CORNER_SOURCE_OF_TRUTH_BLOCK = """Your task:
+- use the prompt-provided history as the default source of truth
+- read training/autoresearch_v3/program.md only if the prompt history is insufficient
+- read training/autoresearch_v3/EXPERIMENT_PLAN.md only if the prompt history is insufficient
+- read training/autoresearch_v3/candidate.py
+- inspect additional files in {run_dir} only if needed to resolve a concrete uncertainty
+- avoid opening image/png files or large historical artifacts unless absolutely necessary
+- edit only training/autoresearch_v3/candidate.py
+- do not commit
+- do not run the benchmark"""
+
+WHOLE_BOARD_PRIORITY_BLOCK = """Experiment priority guidance (read carefully — prior iterations ignored this and wasted ~13 runs on HP tweaks):
+- STRONGLY prefer architectural changes. Concrete directions, in rough order of expected payoff:
+  1. Larger backbone: ResNet-34, ResNet-50, EfficientNet-B0/B1, ConvNeXt-Tiny. More capacity to distinguish similar pieces (especially k/q/n on angled boards).
+  2. Higher input resolution: 320 or 384 instead of 256, with adaptive_avg_pool2d((8,8)) before the head. More pixels per cell — the chessred2k losses are concentrated on small pieces at angle.
+  3. Richer head: replace Conv2d(512, 13, 1) with Conv2d(512, 256, 1) → ReLU → Conv2d(256, 13, 1), or a small transformer/self-attention block over the 64 cells so neighbors can disambiguate.
+  4. Warp-margin: give the model a top-padded warp so piece tops on the back rank are not clipped (currently the warp cuts off anything above rank 8).
+  5. Input representation: board-aware positional encoding (row/col/color channels concatenated with RGB), or two-stream (RGB + edge/grayscale).
+- Secondary (OK as one-offs, not primary focus): class-balanced or focal CE (empty squares are ~50% of cells), single-cell random erasing strength, color-jitter strength.
+- Do NOT propose learning rate, batch size, optimizer, weight decay, or scheduler tweaks as the main hypothesis. The last 13 iterations exhausted that space and plateaued at ~3.03% cell error with no meaningful gain. Only touch these if an architecture change specifically requires them.
+- The user-split error is stuck at ~44% cell error / 100% board error on 5 angled real phone photos. This is a generalization gap, not an optimization gap — only architecture/input changes will move it."""
+
+WHOLE_BOARD_CRITICAL_BLOCK = """CRITICAL — Current state of this track (2026-04-24):
+- 13 experiments completed. Combined cell error floor: 0.03074 (commit 1420a40, batch_size=24).
+- chessred2k:val stuck at ~4.87%, chess_dataset_recovered:val at ~1.07%, synthetic:val at ~0.08%, user:train at ~44%.
+- The architecture so far has been unchanged: pretrained ResNet-18 + single 1x1 conv head at 256 input. This is the cheapest possible whole-board architecture and every HP tweak has hit diminishing returns.
+- The next meaningful gain will come from changing the architecture, not the optimizer."""
+
+WHOLE_BOARD_CHECKPOINT_BLOCK = """Checkpoint policy guidance:
+- The controller resumes training from the current best checkpoint by default.
+- load_checkpoint() in candidate.py already skips shape-mismatched weights, so architecture changes are safe to propose — they simply re-initialize the mismatched layers and fine-tune the rest from the resume (or train from scratch if you prefer).
+- Do NOT avoid architecture changes out of fear of losing the checkpoint. That caution was imported from the corner track and does not apply here — a meaningful architectural win is worth the time cost."""
+
+WHOLE_BOARD_SOURCE_OF_TRUTH_BLOCK = """Your task:
+- READ training/autoresearch_v3/program.md FIRST — it is the authoritative source of goals, constraints, and heuristics for this track. The prompt above is a recency summary, not a substitute.
+- read training/autoresearch_v3/candidate.py
+- use the prompt-provided experiment history as a recency signal, not as the primary source of guidance
+- inspect additional files in {run_dir} only if needed to resolve a concrete uncertainty
+- avoid opening image/png files or large historical artifacts unless absolutely necessary
+- edit only training/autoresearch_v3/candidate.py
+- do not commit
+- do not run the benchmark"""
+
+TRACK_PROMPT_PROFILES = {
+    "resnet_coords": {
+        "model_description": "a chess corner model",
+        "primary_goal": "Optimize combined validation mean corner distance without materially regressing chess_dataset_recovered:val",
+        "experiment_priority_block": CORNER_PRIORITY_BLOCK,
+        "critical_findings_block": CORNER_CRITICAL_BLOCK,
+        "checkpoint_policy_block": CORNER_CHECKPOINT_BLOCK,
+        "source_of_truth_block": CORNER_SOURCE_OF_TRUTH_BLOCK,
+    },
+    "unet_dual_head": {
+        "model_description": "a chess corner model (U-Net dual-head)",
+        "primary_goal": "Optimize combined validation mean corner distance without materially regressing chess_dataset_recovered:val",
+        "experiment_priority_block": CORNER_PRIORITY_BLOCK,
+        "critical_findings_block": CORNER_CRITICAL_BLOCK,
+        "checkpoint_policy_block": CORNER_CHECKPOINT_BLOCK,
+        "source_of_truth_block": CORNER_SOURCE_OF_TRUTH_BLOCK,
+    },
+    "whole_board_classifier": {
+        "model_description": "a whole-board chess piece classifier (the board is already warped to 256x256 upstream; the model outputs [B,13,8,8] per-cell logits)",
+        "primary_goal": "Minimize combined validation cell error (mean_dist) without regressing chess_dataset_recovered:val beyond +0.005 or chessred2k:val beyond +0.01",
+        "experiment_priority_block": WHOLE_BOARD_PRIORITY_BLOCK,
+        "critical_findings_block": WHOLE_BOARD_CRITICAL_BLOCK,
+        "checkpoint_policy_block": WHOLE_BOARD_CHECKPOINT_BLOCK,
+        "source_of_truth_block": WHOLE_BOARD_SOURCE_OF_TRUTH_BLOCK,
+    },
+}
+
+
+def build_track_profile(track: str) -> Dict[str, str]:
+    return TRACK_PROMPT_PROFILES.get(track, TRACK_PROMPT_PROFILES["resnet_coords"])
+
+
 def build_prompt(
     *,
     branch: str,
@@ -502,20 +679,17 @@ def build_prompt(
 Controller feedback from the last rejected proposal:
 {retry_feedback}
 """
-    prompt = f"""You are driving an autonomous research loop for a chess corner model.
+    track_profile = build_track_profile(track)
+    prompt = f"""You are driving an autonomous research loop for {track_profile['model_description']}.
 
 You must obey these repository rules:
 - Edit only training/autoresearch_v3/candidate.py
 - Do not change fixed_harness.py, validation logic, metrics, data, or decision rules
 - Prefer one coherent hypothesis per iteration
 - Prefer smaller changes when evidence is weak
-- Optimize combined validation mean corner distance without materially regressing chess_dataset_recovered:val
+- {track_profile['primary_goal']}
 
-Checkpoint policy guidance:
-- Assume the controller may resume training from the current best checkpoint for local refinements.
-- Resume is appropriate for small same-family changes such as mild augmentation, scheduler, loss-weight, or decode-calibration tweaks.
-- Be cautious about proposing architecture, representation, or target changes that really need a from-scratch run to be evaluated fairly.
-- If a hypothesis seems to require from-scratch training to be meaningful, prefer a different experiment family unless the evidence for that larger change is strong.
+{track_profile['checkpoint_policy_block']}
 
 Target branch: {branch}
 Track: {track}
@@ -535,23 +709,9 @@ Experiment-family diversity policy:
 {format_family_policy(family_policy)}
 {retry_block}
 
-Experiment priority guidance:
-- Prefer the next experiments in these primary families: learning rate, batch size, optimizer, target parameterization.
-- Secondary families are: loss design and weight decay.
-- Deprioritize further JPEG, augmentation, and decode-calibration fiddling unless recent evidence is unusually strong.
-- When evidence is mixed, choose one of the primary families above instead of another augmentation-style micro-tweak.
-- Treat architecture/model-head changes as lower priority than the primary families unless they directly support a target-parameterization hypothesis.
-
-Your task:
-- use the prompt-provided history as the default source of truth
-- read training/autoresearch_v3/program.md only if the prompt history is insufficient
-- read training/autoresearch_v3/EXPERIMENT_PLAN.md only if the prompt history is insufficient
-- read training/autoresearch_v3/candidate.py
-- inspect additional files in {run_dir} only if needed to resolve a concrete uncertainty
-- avoid opening image/png files or large historical artifacts unless absolutely necessary
-- edit only training/autoresearch_v3/candidate.py
-- do not commit
-- do not run the benchmark
+{track_profile['experiment_priority_block']}
+{track_profile['critical_findings_block']}
+{track_profile['source_of_truth_block'].format(run_dir=run_dir)}
 
 Return exactly one JSON object with these keys after you finish editing:
 - description: short benchmark description for run_commit.py
@@ -905,7 +1065,7 @@ def controller_iteration(
     cards = load_experiment_cards(experiments_path, MAX_EXPERIMENTS_CONTEXT)
     family_cards = load_experiment_cards(experiments_path, MAX_FAMILY_HISTORY)
     latest_log = latest_log_tail(cards)
-    family_policy = build_family_policy(family_cards)
+    family_policy = build_family_policy(family_cards, track)
 
     proposal: Optional[Dict[str, Any]] = None
     retry_feedback: Optional[str] = None

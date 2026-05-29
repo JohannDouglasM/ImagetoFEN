@@ -1,0 +1,59 @@
+Dataset chessred2k:train/rgb: 1417 samples
+  Skipped 5 missing-piece entries
+  Skipped 25 missing image files
+Dataset chess_dataset_recovered:train/rgb: 398 samples
+Dataset synthetic:train/rgb: 1800 samples
+Dataset chessred2k:val/rgb: 325 samples
+  Skipped 5 missing image files
+Dataset chess_dataset_recovered:val/rgb: 96 samples
+  Skipped 1 missing image files
+Dataset synthetic:val/rgb: 183 samples
+  Skipped 17 missing image files
+train: 77550  val: 11814
+step=   603 elapsed=205s loss=0.5445 val_acc=0.8999 lr=4.98e-04
+  -> saved best @ 0.8999
+step=  1217 elapsed=409s loss=0.3761 val_acc=0.9107 lr=4.92e-04
+  -> saved best @ 0.9107
+step=  1839 elapsed=615s loss=0.4010 val_acc=0.9230 lr=4.81e-04
+  -> saved best @ 0.9230
+step=  2457 elapsed=820s loss=0.3623 val_acc=0.9368 lr=4.67e-04
+  -> saved best @ 0.9368
+step=  3079 elapsed=1025s loss=0.3618 val_acc=0.9383 lr=4.48e-04
+  -> saved best @ 0.9383
+step=  3701 elapsed=1231s loss=0.3078 val_acc=0.9507 lr=4.27e-04
+  -> saved best @ 0.9507
+step=  4323 elapsed=1437s loss=0.3563 val_acc=0.9574 lr=4.02e-04
+  -> saved best @ 0.9574
+step=  4945 elapsed=1642s loss=0.3017 val_acc=0.9558 lr=3.75e-04
+step=  5567 elapsed=1848s loss=0.3009 val_acc=0.9577 lr=3.45e-04
+  -> saved best @ 0.9577
+step=  6189 elapsed=2053s loss=0.3021 val_acc=0.9639 lr=3.14e-04
+  -> saved best @ 0.9639
+step=  6811 elapsed=2258s loss=0.3089 val_acc=0.9622 lr=2.83e-04
+step=  7433 elapsed=2462s loss=0.3009 val_acc=0.9654 lr=2.50e-04
+  -> saved best @ 0.9654
+step=  8051 elapsed=2667s loss=0.3013 val_acc=0.9661 lr=2.19e-04
+  -> saved best @ 0.9661
+step=  8673 elapsed=2872s loss=0.2978 val_acc=0.9680 lr=1.87e-04
+  -> saved best @ 0.9680
+step=  9295 elapsed=3077s loss=0.2972 val_acc=0.9680 lr=1.58e-04
+step=  9917 elapsed=3282s loss=0.2974 val_acc=0.9684 lr=1.30e-04
+  -> saved best @ 0.9684
+step= 10535 elapsed=3488s loss=0.2971 val_acc=0.9684 lr=1.05e-04
+
+FINAL val_acc=0.9680  best=0.9684
+
+Confusion (rows=GT, cols=pred):
+        b     k     n     p     q     r     B     K     N     P     Q     R
+ b    668     0    17     8     2    12     1     0     0     0     0     1
+ k      1   545     0     0    54     4     0     0     0     0     0     0
+ n     12     1   393     7     0     5     0     0     0     1     0     0
+ p      9     0     5  2934     0     3     0     0     0     5     0     1
+ q      1     7     2     2   285     2     0     0     0     0     0     0
+ r      8     4    12     8     4   782     0     0     0     0     0     0
+ B      0     0     0     0     0     0   579     3     8    10    11     9
+ K      0     0     0     0     0     0     4   575     0     1    20     4
+ N      0     0     0     0     0     0    13     1   492     6     4    15
+ P      0     0     0     2     0     0    14     1     3  3088     1     1
+ Q      0     0     0     0     0     0     3    24     0     1   280     1
+ R      0     0     0     1     0     0     6     2     2     1     7   815

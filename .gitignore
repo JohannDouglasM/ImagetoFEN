@@ -42,9 +42,21 @@ yarn-error.*
 
 # datasets and large files
 *.zip
-*.pt
 *.onnx
-annotations.json
+annotations.json.bak_*
+chess_dataset_recovered_corners.json
+
+# checkpoints — ignored by default, with specific best.pt files force-added (see git ls-files | grep .pt)
+*.pt
+
+# raw image datasets (multi-GB)
+chess-dataset/
+chessred2k/
+
+# loose viz dumps at repo root
+feh_*.JPG
+feh_*.png
+feh_*.jpg
 
 # training artifacts
 training/debug_output/
@@ -76,6 +88,18 @@ training/autoresearch_v3/runs/
 training/ablation/
 training/logs/
 training/training/
+
+# experiment outputs (keep code, ignore artifacts)
+training/two_stage/run*/
+training/two_stage/warp_cache/
+training/two_stage/__pycache__/
+training/wb_384/run*/
+training/wb_384/__pycache__/
+training/recovered_audit/
+training/crop_test_output/
+training/worst_predictions/
+training/viz_*.png
+training/viz_*.jpg
 
 # handoff docs
 CODEX_HANDOFF_*.md
