@@ -13,6 +13,7 @@
       "backgroundColor": "#1a1a2e"
     },
     "ios": {
+      "bundleIdentifier": "com.johannmuhlbach.pngtopgn",
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "This app needs camera access to photograph chess boards for position recognition.",
@@ -20,6 +21,7 @@
       }
     },
     "android": {
+      "package": "com.johannmuhlbach.pngtopgn",
       "adaptiveIcon": {
         "backgroundColor": "#1a1a2e",
         "foregroundImage": "./assets/android-icon-foreground.png",
