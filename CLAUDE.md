@@ -1,10 +1,26 @@
 # CLAUDE.md
 
-## Current state (as of 2026-04-28)
+## Current state (as of 2026-07-12)
 
 Production pipeline: **corner detection → warp → whole-board classifier → piece-only refinement → FEN build**.
 
-Combined val cell accuracy: **99.09%** (up from autoresearch best of 97.10%). Per split: chessred2k 98.54%, chess_dataset_recovered 99.87%, synthetic 99.68%.
+Combined val cell accuracy: **99.09%** (up from autoresearch best of 97.10%). Per split: chessred2k 98.54%, chess_dataset_recovered 99.87%, synthetic 99.68%. **Caveat discovered 2026-07-12: these numbers use GT-corner warps.** See "Mobile app" below for detected-corner numbers.
+
+## Mobile app (two-stage on-device, added 2026-07-12)
+
+`src/ml/inference.ts` now runs corner detector + whole-board classifier on-device via ONNX Runtime (the old per-square pipeline is gone). Piece-only refinement is NOT on-device yet.
+
+- **Export**: `.venv/bin/python training/export_onnx_two_stage.py` → `assets/models/{corner_unet,whole_board}.onnx` (58 + 103 MB, fp32, gitignored — regenerate from `training/checkpoints/`). Parity vs PyTorch ~1e-5.
+- **Key discovery — corner order**: the corner detector localizes corners superbly (~0.15% of diagonal) but does **not** reliably predict board-space order (which corner is a8) — wrong on ~60% of chessred2k val angles. Training eval never caught this because warps used GT corners. The app therefore sorts corners visually (convex, angular sort), warps once, runs the whole-board model on **all 4 rotations** of the warp, and keeps the orientation with the highest mean per-cell softmax confidence. A "rotate board" button in the result screen is the manual backstop (picker is right on ~13/16 val images). A chess-plausibility score (pawns on back ranks, king counts) was tested and performed WORSE than raw confidence — don't retry naively.
+- **Honest end-to-end numbers** (detected corners, confidence-picked rotation, 1024px working image): chessred2k val sample ~91.3% cell acc (oracle rotation 95.0%); the 5 user photos ~55.6%. Reproduce with `node scripts/validate_pipeline.ts` (needs `valsample/` images extracted from chessred2k.zip) and `node scripts/test_user_photos.ts`.
+- **Shared TS core**: all preprocessing (bilinear resize, cv2-faithful Gaussian blur + Canny 80/200, homography warp, rot90) lives in `src/ml/pipelineCore.ts`, imported by both the app and the Node harnesses. Change it only with the harness re-run.
+- **Correction flywheel**: verified/corrected positions are saved via `src/ml/corrections.ts` to `<documents>/corrections/` as photo (FEN in filename, `:` for `/`) + JSON sidecar (corners, dims). This is the future user-domain training data.
+- **Build**: managed workflow + expo-dev-client (must be `~55.x`, the SDK-matched line); `android/` is generated (prebuild). `npx expo run:android` / `run:ios`. No Xcode on the dev Mac; Android SDK + one AVD exist. Use Android Studio's bundled JDK: `JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"`.
+- **Build gotchas (all fixed in-repo, 2026-07-12)**:
+  1. `patches/` (applied via patch-package postinstall): foojay-resolver bumped to 1.0.0 in `@react-native/gradle-plugin` (Gradle 9 removed `JvmVendorSpec.IBM_SEMERU`), and a Gradle-9-incompatible `VersionNumber` check removed from `onnxruntime-react-native`.
+  2. `react-native.config.js` at repo root: onnxruntime-react-native carries a leftover Expo-module config, so SDK 55 autolinking silently skips it → `NativeModules.Onnxruntime` null at runtime. The explicit config forces RN linking. Verify with `npx expo-modules-autolinking react-native-config --platform android --json`.
+  3. `react-dom` must be installed (Expo's dev LogBox imports it); npm needs `--legacy-peer-deps` for installs in this project.
+- **Verified on-device 2026-07-12** (Android emulator, debug build): full flow photo → detected position → FEN → correction UI works; ~2 min inference on emulator (JS JPEG decode + 4 whole-board passes dominate). Known follow-ups: quantize models (58+103 MB fp32), speed up (batch the 4 rotations, native decode), piece-refinement stage on-device.
 
 ### Components
 
