@@ -324,6 +324,7 @@ def resolve_image_path(group, image_info, images_root, annotations_root, synthet
         roots.extend([
             annotations_root / "chess-dataset" / "labeled_originals",
             images_root / "chess-dataset" / "labeled_originals",
+            TRAINING_DIR / "data" / "chess-dataset" / "labeled_originals",
         ])
 
     for root in roots:

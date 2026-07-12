@@ -23,15 +23,16 @@ import torch
 from torch.utils.data import DataLoader
 
 THIS_DIR = Path(__file__).resolve().parent
+REPO_ROOT = THIS_DIR.parents[1]
 sys.path.insert(0, str(THIS_DIR))
-WORKTREE = Path("/home/johann/autoresearch/20260423-whole_board_classifier")
-HARNESS_DIR = WORKTREE / "training" / "autoresearch_v3"
-ANNOTATIONS = "/home/johann/ImagetoFEN/annotations.json"
-IMAGES_ROOT = "/home/johann/ImagetoFEN"
+HARNESS_DIR = REPO_ROOT / "training" / "autoresearch_v3"
+CANDIDATE_PATH = REPO_ROOT / "training" / "checkpoints" / "whole_board_0399b00.candidate.py"
+ANNOTATIONS = str(REPO_ROOT / "annotations.json")
+IMAGES_ROOT = str(REPO_ROOT)
 
 # Whole-board model defaults (use the 384 run if it exists, else fall back to current best)
-WB_384 = Path("/home/johann/ImagetoFEN/training/wb_384/run1/best.pt")
-WB_256 = Path("/home/johann/autoresearch/20260423-whole_board_classifier/training/autoresearch_v3/runs/20260423-whole_board_classifier/artifacts/20260425T091625Z_0399b00/best.pt")
+WB_384 = REPO_ROOT / "training" / "wb_384" / "run1" / "best.pt"
+WB_256 = REPO_ROOT / "training" / "checkpoints" / "whole_board_0399b00.pt"
 PIECE_CKPT_V1 = THIS_DIR / "run1" / "best.pt"
 PIECE_CKPT_V2 = THIS_DIR / "run2" / "best.pt"
 PIECE_CKPT_V3 = THIS_DIR / "run3" / "best.pt"
@@ -69,12 +70,18 @@ def load_module(name, path):
 
 def main():
     sys.path.insert(0, str(HARNESS_DIR))
-    candidate = load_module("autoresearch_candidate", HARNESS_DIR / "candidate.py")
+    candidate = load_module("autoresearch_candidate", CANDIDATE_PATH)
     harness = load_module("fixed_harness_board", HARNESS_DIR / "fixed_harness_board.py")
     from piece_dataset import warp_board, crop_cell, patch_to_tensor, PIECE_TO_WHOLE, WARP_BOARD_PX
     from piece_model import build_piece_model, build_piece_model_aux
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
+    elif torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+    print(f"device: {device}")
 
     # WB_384 regressed (-1.4pp combined). Pin to the original 256 best.
     wb_ckpt_path = WB_256
@@ -110,6 +117,9 @@ def main():
             input_mode=defaults["input_mode"], img_size=defaults["img_size"],
             augment=False, seed=1337,
         )
+        if len(bd) == 0:
+            print(f"{group}:{split:<24} {'SKIP empty split':>22}")
+            continue
         loader = DataLoader(bd, batch_size=8, shuffle=False, num_workers=0)
         results = run_split(wb_model, piece_model, bd, loader, device)
         for mode, errs in results.items():

@@ -14,11 +14,12 @@ import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 
 THIS_DIR = Path(__file__).resolve().parent
+REPO_ROOT = THIS_DIR.parents[1]
 sys.path.insert(0, str(THIS_DIR))
-WORKTREE = Path("/home/johann/autoresearch/20260423-whole_board_classifier")
-HARNESS_DIR = WORKTREE / "training" / "autoresearch_v3"
-ANNOTATIONS = "/home/johann/ImagetoFEN/annotations.json"
-IMAGES_ROOT = "/home/johann/ImagetoFEN"
+HARNESS_DIR = REPO_ROOT / "training" / "autoresearch_v3"
+CANDIDATE_PATH = REPO_ROOT / "training" / "checkpoints" / "whole_board_0399b00.candidate.py"
+ANNOTATIONS = str(REPO_ROOT / "annotations.json")
+IMAGES_ROOT = str(REPO_ROOT)
 CACHE_DIR = THIS_DIR / "warp_cache"
 WARP_SIZE = 512
 
@@ -53,7 +54,7 @@ def warp_one(item):
 def main():
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     sys.path.insert(0, str(HARNESS_DIR))
-    candidate = load_module("autoresearch_candidate", HARNESS_DIR / "candidate.py")
+    candidate = load_module("autoresearch_candidate", CANDIDATE_PATH)
     harness = load_module("fixed_harness_board", HARNESS_DIR / "fixed_harness_board.py")
 
     defaults = candidate.get_defaults()

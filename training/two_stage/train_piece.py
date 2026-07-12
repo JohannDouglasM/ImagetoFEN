@@ -16,11 +16,12 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 THIS_DIR = Path(__file__).resolve().parent
+REPO_ROOT = THIS_DIR.parents[1]
 sys.path.insert(0, str(THIS_DIR))
-WORKTREE = Path("/home/johann/autoresearch/20260423-whole_board_classifier")
-HARNESS_DIR = WORKTREE / "training" / "autoresearch_v3"
-ANNOTATIONS = "/home/johann/ImagetoFEN/annotations.json"
-IMAGES_ROOT = "/home/johann/ImagetoFEN"
+HARNESS_DIR = REPO_ROOT / "training" / "autoresearch_v3"
+CANDIDATE_PATH = REPO_ROOT / "training" / "checkpoints" / "whole_board_0399b00.candidate.py"
+ANNOTATIONS = str(REPO_ROOT / "annotations.json")
+IMAGES_ROOT = str(REPO_ROOT)
 OUT_DIR = THIS_DIR / "run1"
 
 LETTER_PIECE = ["b", "k", "n", "p", "q", "r", "B", "K", "N", "P", "Q", "R"]
@@ -36,7 +37,7 @@ def load_module(name, path):
 def main(time_budget_s=3600.0, batch_size=64, lr=3e-4, weight_decay=0.01):
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     sys.path.insert(0, str(HARNESS_DIR))
-    candidate = load_module("autoresearch_candidate", HARNESS_DIR / "candidate.py")
+    candidate = load_module("autoresearch_candidate", CANDIDATE_PATH)
     harness = load_module("fixed_harness_board", HARNESS_DIR / "fixed_harness_board.py")
     from piece_dataset import PieceCropDataset, NUM_PIECE_CLASSES
     from piece_model import build_piece_model

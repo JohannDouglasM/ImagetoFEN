@@ -103,3 +103,9 @@ training/viz_*.jpg
 
 # handoff docs
 CODEX_HANDOFF_*.md
+
+# python bytecode
+__pycache__/
+
+# extracted val sample images for scripts/validate_pipeline.ts
+/valsample/

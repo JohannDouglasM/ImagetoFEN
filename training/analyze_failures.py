@@ -10,13 +10,12 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-WORKTREE = Path("/home/johann/autoresearch/20260423-whole_board_classifier")
-HARNESS_DIR = WORKTREE / "training" / "autoresearch_v3"
-ART = HARNESS_DIR / "runs" / "20260423-whole_board_classifier" / "artifacts" / "20260425T091625Z_0399b00"
-CHECKPOINT = ART / "best.pt"
-CANDIDATE_PY = ART / "candidate.py"
-ANNOTATIONS = "/home/johann/ImagetoFEN/annotations.json"
-IMAGES_ROOT = "/home/johann/ImagetoFEN"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+HARNESS_DIR = REPO_ROOT / "training" / "autoresearch_v3"
+CHECKPOINT = REPO_ROOT / "training" / "checkpoints" / "whole_board_0399b00.pt"
+CANDIDATE_PY = REPO_ROOT / "training" / "checkpoints" / "whole_board_0399b00.candidate.py"
+ANNOTATIONS = str(REPO_ROOT / "annotations.json")
+IMAGES_ROOT = str(REPO_ROOT)
 
 VAL_SPLITS = [
     ("chessred2k", "val"),
@@ -39,7 +38,12 @@ def main():
     candidate = load_module("autoresearch_candidate", CANDIDATE_PY)
     harness = load_module("fixed_harness_board", HARNESS_DIR / "fixed_harness_board.py")
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
+    elif torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
     model = candidate.build_model(input_channels=3)
     ckpt = torch.load(str(CHECKPOINT), map_location="cpu", weights_only=True)
     candidate.load_checkpoint(model, ckpt.get("model_state_dict", ckpt))
@@ -58,6 +62,9 @@ def main():
             input_mode=defaults["input_mode"], img_size=defaults["img_size"],
             augment=False, seed=1337,
         )
+        if len(ds) == 0:
+            print(f"Skipping empty split {group}:{split}")
+            continue
         loader = DataLoader(ds, batch_size=16, shuffle=False, num_workers=0)
         confusion = np.zeros((13, 13), dtype=np.int64)
         row_err = np.zeros(8, dtype=np.int64)

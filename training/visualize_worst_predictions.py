@@ -12,13 +12,13 @@ import torch
 from PIL import Image, ImageDraw, ImageFont
 from torch.utils.data import DataLoader
 
-WORKTREE = Path("/home/johann/autoresearch/20260423-whole_board_classifier")
-HARNESS_DIR = WORKTREE / "training" / "autoresearch_v3"
-CHECKPOINT = HARNESS_DIR / "runs" / "20260423-whole_board_classifier" / "artifacts" / "20260425T091625Z_0399b00" / "best.pt"
-CANDIDATE_PY = HARNESS_DIR / "runs" / "20260423-whole_board_classifier" / "artifacts" / "20260425T091625Z_0399b00" / "candidate.py"
-ANNOTATIONS = "/home/johann/ImagetoFEN/annotations.json"
-IMAGES_ROOT = "/home/johann/ImagetoFEN"
-OUT_DIR = Path("/home/johann/ImagetoFEN/training/worst_predictions")
+REPO_ROOT = Path(__file__).resolve().parents[1]
+HARNESS_DIR = REPO_ROOT / "training" / "autoresearch_v3"
+CHECKPOINT = REPO_ROOT / "training" / "checkpoints" / "whole_board_0399b00.pt"
+CANDIDATE_PY = REPO_ROOT / "training" / "checkpoints" / "whole_board_0399b00.candidate.py"
+ANNOTATIONS = str(REPO_ROOT / "annotations.json")
+IMAGES_ROOT = str(REPO_ROOT)
+OUT_DIR = REPO_ROOT / "training" / "worst_predictions"
 
 VAL_SPLITS = [
     ("chessred2k", "val"),
@@ -45,7 +45,12 @@ def main():
     candidate = load_module("autoresearch_candidate", CANDIDATE_PY)
     harness = load_module("fixed_harness_board", HARNESS_DIR / "fixed_harness_board.py")
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
+    elif torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
     print(f"Device: {device}")
 
     model = candidate.build_model(input_channels=3)
@@ -73,6 +78,9 @@ def main():
             augment=False,
             seed=1337,
         )
+        if len(ds) == 0:
+            print(f"Skipping empty split {group}:{split}")
+            continue
         loader = DataLoader(ds, batch_size=16, shuffle=False, num_workers=0)
 
         records = []
