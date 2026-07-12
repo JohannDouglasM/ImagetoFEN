@@ -15,9 +15,16 @@ import * as Haptics from "expo-haptics";
 import * as Linking from "expo-linking";
 import ChessBoard from "../src/components/ChessBoard";
 import PieceEditor from "../src/components/PieceEditor";
-import { PieceType, SquareResult, buildFullFen, validateFen } from "../src/chess/fenBuilder";
+import {
+  PieceType,
+  SquareResult,
+  buildFullFen,
+  buildFenPosition,
+  validateFen,
+} from "../src/chess/fenBuilder";
 import { fenToPgn, lichessAnalysisUrl } from "../src/chess/pgnExporter";
-import { runFullPipeline } from "../src/ml/inference";
+import { runFullPipeline, PipelineResult } from "../src/ml/inference";
+import { saveCorrection, countCorrections, shareLatestCorrection } from "../src/ml/corrections";
 
 const FILE_LABELS = ["a", "b", "c", "d", "e", "f", "g", "h"];
 
@@ -29,6 +36,11 @@ export default function ResultScreen() {
   const [position, setPosition] = useState<(PieceType | null)[][]>(
     Array.from({ length: 8 }, () => Array(8).fill(null))
   );
+  const [confidence, setConfidence] = useState<number[][] | null>(null);
+  const [pipeline, setPipeline] = useState<PipelineResult | null>(null);
+  const [candidateIndex, setCandidateIndex] = useState(0);
+  const [edited, setEdited] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingStatus, setLoadingStatus] = useState("Analyzing board...");
   const [editSquare, setEditSquare] = useState<{ row: number; col: number } | null>(null);
@@ -42,6 +54,19 @@ export default function ResultScreen() {
     runInference();
   }, []);
 
+  const applyCandidate = (result: PipelineResult, index: number) => {
+    const cand = result.candidates[index];
+    const board: (PieceType | null)[][] = Array.from({ length: 8 }, () => Array(8).fill(null));
+    for (const sq of cand.squares) {
+      board[sq.row][sq.col] = sq.piece;
+    }
+    setPosition(board);
+    setConfidence(cand.confidence);
+    setCandidateIndex(index);
+    setEdited(false);
+    setSaved(false);
+  };
+
   const runInference = async () => {
     setLoading(true);
     try {
@@ -51,15 +76,11 @@ export default function ResultScreen() {
         return;
       }
 
-      setLoadingStatus("Analyzing board...");
-      const results = await runFullPipeline(imageUri, (done, total) => {
-        if (done < total) {
-          setLoadingStatus("Analyzing board...");
-        } else {
-          setLoadingStatus("Done!");
-        }
+      const result = await runFullPipeline(imageUri, (done, total) => {
+        setLoadingStatus(done < total ? `Analyzing board… ${done}/${total}` : "Done!");
       });
-      applyResults(results);
+      setPipeline(result);
+      applyCandidate(result, 0);
     } catch (err) {
       console.error("Inference error:", err);
       Alert.alert(
@@ -71,12 +92,24 @@ export default function ResultScreen() {
     }
   };
 
-  const applyResults = (results: SquareResult[]) => {
-    const board: (PieceType | null)[][] = Array.from({ length: 8 }, () => Array(8).fill(null));
-    for (const sq of results) {
-      board[sq.row][sq.col] = sq.piece;
+  const rotateOrientation = () => {
+    if (!pipeline) return;
+    if (edited) {
+      Alert.alert(
+        "Discard edits?",
+        "Changing orientation reloads the model's prediction and discards your edits.",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Rotate",
+            onPress: () =>
+              applyCandidate(pipeline, (candidateIndex + 1) % pipeline.candidates.length),
+          },
+        ]
+      );
+      return;
     }
-    setPosition(board);
+    applyCandidate(pipeline, (candidateIndex + 1) % pipeline.candidates.length);
   };
 
   const getSquareResults = useCallback((): SquareResult[] => {
@@ -116,8 +149,48 @@ export default function ResultScreen() {
       next[editSquare.row][editSquare.col] = piece;
       return next;
     });
+    // Clear the uncertainty flag on the square the user just verified
+    setConfidence((prev) => {
+      if (!prev) return prev;
+      const next = prev.map((r) => [...r]);
+      next[editSquare.row][editSquare.col] = 1;
+      return next;
+    });
+    setEdited(true);
+    setSaved(false);
     setEditSquare(null);
   };
+
+  const handleSave = async () => {
+    if (!pipeline || !imageUri) return;
+    try {
+      await saveCorrection(imageUri, {
+        fenPosition: buildFenPosition(getSquareResults()),
+        corners: pipeline.corners,
+        imageWidth: pipeline.originalWidth,
+        imageHeight: pipeline.originalHeight,
+        savedAt: new Date().toISOString(),
+        userEdited: edited,
+      });
+      setSaved(true);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      const n = countCorrections();
+      Alert.alert(
+        "Saved as training data",
+        `${n} labeled photo${n === 1 ? "" : "s"} collected. Share this one now?`,
+        [
+          { text: "Later", style: "cancel" },
+          { text: "Share", onPress: () => shareLatestCorrection() },
+        ]
+      );
+    } catch (err) {
+      Alert.alert("Error", `Could not save: ${err instanceof Error ? err.message : err}`);
+    }
+  };
+
+  const uncertainCount = confidence
+    ? confidence.flat().filter((c) => c < 0.85).length
+    : 0;
 
   if (loading) {
     return (
@@ -136,8 +209,22 @@ export default function ResultScreen() {
           onSquarePress={handleSquarePress}
           selectedSquare={editSquare}
           size={boardSize}
+          confidence={confidence}
         />
       </View>
+
+      {uncertainCount > 0 && (
+        <Text style={styles.uncertainHint}>
+          ⚠ {uncertainCount} square{uncertainCount === 1 ? "" : "s"} the model isn't sure about —
+          tap to verify.
+        </Text>
+      )}
+
+      <TouchableOpacity style={styles.rotateButton} onPress={rotateOrientation}>
+        <Text style={styles.rotateText}>
+          ↻ Wrong orientation? Rotate board
+        </Text>
+      </TouchableOpacity>
 
       {!validation.valid && (
         <View style={styles.warningBox}>
@@ -203,9 +290,22 @@ export default function ResultScreen() {
         >
           <Text style={styles.actionText}>Open in Lichess</Text>
         </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.actionButton, styles.saveButton, saved && styles.savedButton]}
+          onPress={handleSave}
+          disabled={saved}
+        >
+          <Text style={styles.actionText}>
+            {saved ? "✓ Saved as training data" : "Position correct? Save as training data"}
+          </Text>
+        </TouchableOpacity>
       </View>
 
-      <Text style={styles.hint}>Tap any square on the board to edit a piece.</Text>
+      <Text style={styles.hint}>
+        Tap any square on the board to edit a piece. Saving a verified position helps the
+        model learn your board.
+      </Text>
 
       <PieceEditor
         visible={editSquare !== null}
@@ -242,12 +342,31 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   boardContainer: {
-    marginBottom: 20,
+    marginBottom: 12,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 8,
+  },
+  uncertainHint: {
+    color: "#ff9f43",
+    fontSize: 13,
+    marginBottom: 10,
+    textAlign: "center",
+  },
+  rotateButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    marginBottom: 16,
+    borderRadius: 8,
+    backgroundColor: "#0f3460",
+    borderWidth: 1,
+    borderColor: "#1a4a80",
+  },
+  rotateText: {
+    color: "#a8c8e8",
+    fontSize: 14,
   },
   warningBox: {
     backgroundColor: "#4a2020",
@@ -323,6 +442,13 @@ const styles = StyleSheet.create({
   lichessButton: {
     backgroundColor: "#4a4a00",
     borderColor: "#6a6a20",
+  },
+  saveButton: {
+    backgroundColor: "#1a4a2e",
+    borderColor: "#2a6a4e",
+  },
+  savedButton: {
+    opacity: 0.6,
   },
   actionText: {
     color: "#fff",

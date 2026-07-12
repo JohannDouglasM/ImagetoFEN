@@ -23,17 +23,33 @@ type Props = {
   onSquarePress?: (row: number, col: number) => void;
   selectedSquare?: { row: number; col: number } | null;
   size?: number;
+  /** 8x8 model confidence per square; squares below `confidenceThreshold` get flagged */
+  confidence?: number[][] | null;
+  confidenceThreshold?: number;
 };
 
-export default function ChessBoard({ position, onSquarePress, selectedSquare, size = 320 }: Props) {
-  const squareSize = size / 8;
+export default function ChessBoard({
+  position,
+  onSquarePress,
+  selectedSquare,
+  size = 320,
+  confidence,
+  confidenceThreshold = 0.85,
+}: Props) {
+  // RN borders are inside the view's width — subtract them or the 8th square
+  // wraps onto the next line and the board renders as a staircase.
+  const BORDER = 2;
+  const squareSize = (size - 2 * BORDER) / 8;
 
   return (
     <View style={[styles.board, { width: size, height: size }]}>
-      {position.map((rank, row) =>
-        rank.map((piece, col) => {
+      {position.map((rank, row) => (
+        <View key={row} style={styles.rank}>
+          {rank.map((piece, col) => {
           const isLight = (row + col) % 2 === 0;
           const isSelected = selectedSquare?.row === row && selectedSquare?.col === col;
+          const isUncertain =
+            !isSelected && (confidence?.[row]?.[col] ?? 1) < confidenceThreshold;
 
           return (
             <TouchableOpacity
@@ -49,6 +65,7 @@ export default function ChessBoard({ position, onSquarePress, selectedSquare, si
                       ? "#f0d9b5"
                       : "#b58863",
                 },
+                isUncertain && styles.uncertain,
               ]}
               onPress={() => onSquarePress?.(row, col)}
               activeOpacity={0.7}
@@ -75,24 +92,31 @@ export default function ChessBoard({ position, onSquarePress, selectedSquare, si
               )}
             </TouchableOpacity>
           );
-        })
-      )}
+          })}
+        </View>
+      ))}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   board: {
-    flexDirection: "row",
-    flexWrap: "wrap",
+    flexDirection: "column",
     borderWidth: 2,
     borderColor: "#333",
     borderRadius: 4,
     overflow: "hidden",
   },
+  rank: {
+    flexDirection: "row",
+  },
   square: {
     justifyContent: "center",
     alignItems: "center",
+  },
+  uncertain: {
+    borderWidth: 2,
+    borderColor: "#ff9f43",
   },
   piece: {
     textAlign: "center",
